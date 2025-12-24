@@ -5,125 +5,139 @@ const io = require('socket.io')(http);
 
 app.use(express.static(__dirname));
 
-// GAME STATE
+// --- GAME STATE ---
 let players = {};
-let raceState = {
+let race = {
     active: false,
     startTime: 0,
     laps: 3,
-    entrants: []
+    winner: null,
+    participants: []
 };
 
-// SHOP CATALOG
-const CAR_Stats = {
-    0: { name: "Rookie Kart", speed: 1.0, grip: 0.95, cost: 0 },
-    1: { name: "Street Tuner", speed: 1.3, grip: 0.92, cost: 500 },
-    2: { name: "Muscle Car", speed: 1.6, grip: 0.85, cost: 1500 },
-    3: { name: "F1 Prototype", speed: 2.0, grip: 0.99, cost: 5000 }
+// --- SHOP DATA ---
+const CATALOG = {
+    0: { name: "Rookie Kart", price: 0, speed: 1.0, grip: 0.94 },
+    1: { name: "Street Tuner", price: 500, speed: 1.3, grip: 0.91 },
+    2: { name: "Rally Beast", price: 1500, speed: 1.5, grip: 0.88 },
+    3: { name: "F1 Prototype", price: 5000, speed: 2.1, grip: 0.98 }
 };
 
 io.on('connection', (socket) => {
-    console.log('Racer connected: ' + socket.id);
+    console.log(`[CONNECT] ${socket.id}`);
 
-    // Init Player
+    // Initialize Player Data
     players[socket.id] = {
         id: socket.id,
-        x: 0, z: 0, ry: 0,
-        money: 100, // Starting Cash
-        carType: 0,
-        ownedCars: [0],
-        name: "Racer " + Math.floor(Math.random()*100),
+        x: 0, y: 0, z: 0,
+        qx: 0, qy: 0, qz: 0, qw: 1, // Quaternion rotation (smooth 3D)
+        speed: 0,
+        steering: 0,
+        name: "Racer " + socket.id.substr(0,4),
         color: Math.random() * 0xffffff,
-        isRacing: false,
-        lap: 0
+        money: 100,
+        carId: 0,
+        owned: [0],
+        lap: 0,
+        checkpoint: 0
     };
 
-    socket.emit('initData', { id: socket.id, players: players, shop: CAR_Stats, race: raceState });
-    socket.broadcast.emit('newPlayer', players[socket.id]);
+    // Send Initial State
+    socket.emit('welcome', { id: socket.id, list: players, shop: CATALOG, race: race });
+    socket.broadcast.emit('playerJoin', players[socket.id]);
 
-    // MOVEMENT
-    socket.on('playerMovement', (data) => {
-        if (players[socket.id]) {
+    // 1. Movement Handler (High Frequency)
+    socket.on('move', (data) => {
+        if(players[socket.id]) {
             const p = players[socket.id];
-            p.x = data.x;
-            p.y = data.y; // New: Height
-            p.z = data.z;
-            p.ry = data.ry;
-            p.tilt = data.tilt; // New: Body Roll
-            p.drift = data.drift;
-            
-            socket.broadcast.emit('playerMoved', p);
+            p.x = data.x; p.y = data.y; p.z = data.z;
+            p.qx = data.qx; p.qy = data.qy; p.qz = data.qz; p.qw = data.qw;
+            p.speed = data.s;
+            p.steering = data.st;
+            // Relay to others (Optimized)
+            socket.broadcast.emit('playerUpdate', {
+                id: socket.id,
+                x: p.x, y: p.y, z: p.z,
+                qx: p.qx, qy: p.qy, qz: p.qz, qw: p.qw,
+                s: p.speed,
+                st: p.steering
+            });
         }
     });
 
-    // BUY CAR
-    socket.on('buyCar', (carId) => {
+    // 2. Shop Logic
+    socket.on('buy', (id) => {
         const p = players[socket.id];
-        const car = CAR_Stats[carId];
-        if(p && !p.ownedCars.includes(carId) && p.money >= car.cost) {
-            p.money -= car.cost;
-            p.ownedCars.push(carId);
-            p.carType = carId;
-            io.to(socket.id).emit('updateEconomy', { money: p.money, owned: p.ownedCars, current: carId });
+        const item = CATALOG[id];
+        if(p && item && !p.owned.includes(id) && p.money >= item.price) {
+            p.money -= item.price;
+            p.owned.push(id);
+            p.carId = id;
+            io.to(socket.id).emit('economyUpdate', { money: p.money, owned: p.owned, car: id });
         }
     });
 
-    // EQUIP CAR
-    socket.on('equipCar', (carId) => {
+    socket.on('equip', (id) => {
         const p = players[socket.id];
-        if(p && p.ownedCars.includes(carId)) {
-            p.carType = carId;
-            io.emit('playerSwitchedCar', { id: socket.id, carType: carId });
+        if(p && p.owned.includes(id)) {
+            p.carId = id;
+            io.emit('carChanged', { id: socket.id, car: id });
         }
     });
 
-    // RACE LOGIC
+    // 3. Race Logic
     socket.on('joinRace', () => {
-        if(raceState.active) return;
-        if(!raceState.entrants.includes(socket.id)) {
-            raceState.entrants.push(socket.id);
-            io.emit('raceUpdate', raceState);
+        if(race.active) return;
+        if(!race.participants.includes(socket.id)) {
+            race.participants.push(socket.id);
+            io.emit('raceStatus', { count: race.participants.length, active: false });
             
-            // Start Timer if 2+ players or forced
-            if(raceState.entrants.length >= 1) { // 1 for testing, change to 2 later
-                setTimeout(startRace, 5000); // 5 sec countdown
+            // Auto start if 2+ players or debug
+            if(race.participants.length >= 1) { 
+                startRaceCountdown(); 
             }
         }
     });
 
-    socket.on('lapFinished', () => {
+    socket.on('finishLap', (lapNum) => {
         const p = players[socket.id];
-        if(!p) return;
-        p.lap++;
-        if(p.lap > raceState.laps) {
-            // WINNER
-            p.money += 300; // Prize
-            io.to(socket.id).emit('updateEconomy', { money: p.money, owned: p.ownedCars, current: p.carType });
-            io.emit('raceMessage', `${p.name} Finished!`);
+        if(p && race.active) {
+            p.lap = lapNum;
+            if(p.lap > race.laps) {
+                // WINNER
+                p.money += 500; // Big payout
+                io.to(socket.id).emit('economyUpdate', { money: p.money, owned: p.owned, car: p.carId });
+                io.emit('raceOver', { winner: p.name });
+                resetRace();
+            }
         }
     });
 
     socket.on('disconnect', () => {
         delete players[socket.id];
-        raceState.entrants = raceState.entrants.filter(id => id !== socket.id);
-        io.emit('disconnect', socket.id);
+        race.participants = race.participants.filter(x => x !== socket.id);
+        io.emit('playerLeave', socket.id);
     });
 });
 
-function startRace() {
-    raceState.active = true;
-    raceState.startTime = Date.now();
-    io.emit('raceStart', raceState);
-    
-    // Reset Race after 2 mins
-    setTimeout(() => {
-        raceState.active = false;
-        raceState.entrants = [];
-        io.emit('raceEnd');
-    }, 120000);
+let raceTimer = null;
+function startRaceCountdown() {
+    if(raceTimer) return;
+    io.emit('msg', "RACE STARTING IN 5...");
+    raceTimer = setTimeout(() => {
+        race.active = true;
+        race.startTime = Date.now();
+        io.emit('raceStart', race);
+        raceTimer = null;
+    }, 5000);
+}
+
+function resetRace() {
+    race.active = false;
+    race.participants = [];
+    race.winner = null;
+    io.emit('raceStatus', { count: 0, active: false });
 }
 
 const port = process.env.PORT || 3000;
-http.listen(port, () => {
-    console.log(`Economy Server on port ${port}`);
-});
+http.listen(port, () => console.log(`Server running on ${port}`));
