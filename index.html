@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TURBO DRIFT: GPS UPDATE</title>
+    <title>TURBO DRIFT: OPEN WORLD</title>
     <style>
         :root { --neon: #00f3ff; --danger: #ff0055; --bg: #000; }
         body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; user-select: none; color: white; }
@@ -15,14 +15,8 @@
         .money span { color: var(--neon); }
         
         /* MINIMAP */
-        #minimap-wrapper { pointer-events: auto; width: 180px; height: 180px; margin-top: 10px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; overflow: hidden; background: rgba(0,0,0,0.8); cursor: pointer; transition: 0.2s; }
-        #minimap-wrapper:hover { border-color: var(--neon); transform: scale(1.05); }
-        #minimap-canvas { width: 100%; height: 100%; object-fit: cover; }
-
-        /* FULL MAP MODAL */
-        #big-map { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 200; pointer-events: auto; flex-direction: column; align-items: center; justify-content: center; }
-        #big-map-canvas { background: #111; border: 2px solid var(--neon); box-shadow: 0 0 50px var(--neon); cursor: crosshair; }
-        .map-hint { margin-top: 20px; color: #aaa; font-size: 14px; }
+        #minimap-wrapper { pointer-events: auto; width: 200px; height: 200px; margin-top: 10px; border: 2px solid #333; border-radius: 10px; overflow: hidden; background: rgba(0,0,0,0.8); cursor: pointer; transition: 0.2s; }
+        #minimap-canvas { width: 100%; height: 100%; object-fit: contain; }
 
         /* TRACK SELECTOR */
         #track-select { pointer-events: auto; display: flex; gap: 10px; margin-top: 10px; }
@@ -56,7 +50,6 @@
 </head>
 <body>
 
-    <!-- HUD LAYER -->
     <div id="ui-layer">
         <div style="display:flex; justify-content:space-between; align-items: flex-start;">
             <div>
@@ -65,16 +58,14 @@
                     <button style="margin-left:10px; background:var(--neon); border:none; padding:5px 15px; cursor:pointer;" onclick="Game.toggleShop()">GARAGE</button>
                 </div>
                 
-                <!-- MINIMAP -->
-                <div id="minimap-wrapper" onclick="Game.toggleBigMap()">
+                <div id="minimap-wrapper">
                     <canvas id="minimap-canvas" width="200" height="200"></canvas>
                 </div>
-                <div style="font-size:10px; color:#aaa; margin-top:5px; text-align:center;">CLICK FOR MAP (M)</div>
 
                 <div id="track-select">
-                    <button class="track-btn" onclick="Game.teleport(0)">OVAL CIRCUIT</button>
+                    <button class="track-btn" onclick="Game.teleport(0)">CIRCUIT</button>
                     <button class="track-btn" onclick="Game.teleport(1)">NEON CITY</button>
-                    <button class="track-btn" onclick="Game.teleport(2)">OFFROAD RALLY</button>
+                    <button class="track-btn" onclick="Game.teleport(2)">CANYON RALLY</button>
                 </div>
             </div>
             <div class="card">
@@ -100,14 +91,6 @@
         </div>
     </div>
 
-    <!-- FULL MAP MODAL -->
-    <div id="big-map">
-        <canvas id="big-map-canvas" width="600" height="600"></canvas>
-        <div class="map-hint">CLICK TO SET WAYPOINT • PRESS 'M' TO CLOSE</div>
-        <button onclick="Game.clearWaypoint()" style="margin-top:10px; background:#333; color:white; border:1px solid #555; padding:5px 15px; cursor:pointer;">CLEAR WAYPOINT</button>
-    </div>
-
-    <!-- SHOP MODAL -->
     <div id="shop">
         <h1 style="font-size:40px; margin-bottom:40px;">DEALERSHIP</h1>
         <div class="grid" id="shop-grid"></div>
@@ -119,7 +102,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
 
     <script>
-        // --- SOUND (Pure Rumble) ---
+        // ========================================================
+        // 🔊 AUDIO ENGINE
+        // ========================================================
         class AudioController {
             constructor() {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -164,7 +149,9 @@
             }
         }
 
-        // --- CAR PHYSICS ---
+        // ========================================================
+        // 🏎️ CAR PHYSICS
+        // ========================================================
         class Car {
             constructor(stats, color) {
                 this.stats = stats;
@@ -174,8 +161,6 @@
                 this.quat = new THREE.Quaternion();
                 this.speed = 0; 
                 this.rotVel = 0;
-                this.checkpoint = 0; 
-                this.lap = 1;
                 this.lastSafePos = new THREE.Vector3(0, 5, 0);
             }
             createMesh(color) {
@@ -199,13 +184,20 @@
                 });
                 return g;
             }
-            update(inputs, dt, terrainFn) {
+            update(inputs, dt, terrainFn, onRoad) {
                 const h = terrainFn(this.pos.x, this.pos.z);
                 let accel = 0;
                 if(inputs.ArrowUp) accel = this.stats.accel;
                 if(inputs.ArrowDown) accel = -this.stats.accel;
+                
+                // OFF-ROAD PENALTY (Friction)
+                if(!onRoad && Math.abs(this.speed) > 0.3) {
+                    this.speed *= 0.95; // Slow down fast
+                }
+
                 this.speed += accel;
-                this.speed *= 0.98; 
+                this.speed *= 0.98; // Normal drag
+
                 if(Math.abs(this.speed) > 0.1) {
                     const dir = this.speed > 0 ? 1 : -1;
                     const turnForce = this.stats.turn * 3.5; 
@@ -213,85 +205,73 @@
                     if(inputs.ArrowRight) this.rotVel -= turnForce * dt * dir;
                 }
                 this.rotVel *= 0.85; 
+                
                 const q = new THREE.Quaternion();
                 q.setFromAxisAngle(new THREE.Vector3(0,1,0), this.rotVel);
                 this.quat.multiply(q).normalize();
+
                 const fwd = new THREE.Vector3(0,0,1).applyQuaternion(this.quat);
                 const grip = inputs.Shift ? 0.05 : (this.stats.grip || 0.8);
                 const targetVel = fwd.clone().multiplyScalar(this.speed);
                 this.velocity.lerp(targetVel, grip);
+
                 this.pos.add(this.velocity);
                 this.pos.y = h + 0.5;
+
                 this.mesh.position.copy(this.pos);
                 this.mesh.quaternion.copy(this.quat);
                 this.wheels.forEach(w => w.rotation.x += this.speed);
                 this.mesh.children[0].rotation.z = -this.rotVel * 4; 
                 this.mesh.children[0].rotation.x = -this.speed * 0.05; 
+
                 if(inputs.Shift && Math.abs(this.speed) > 0.5) Game.emitSmoke(this.pos);
             }
         }
 
-        // --- GAME MANAGER ---
+        // ========================================================
+        // 🌍 GAME MANAGER
+        // ========================================================
         const Game = {
             socket: null, scene: null, camera: null, renderer: null, audio: new AudioController(),
             input: { ArrowUp:false, ArrowDown:false, ArrowLeft:false, ArrowRight:false, Shift:false },
             players: {}, myCar: null, racing: false, camIndex: 0,
-            waypoint: null, waypointMesh: null,
+            tracks: [], currentTrack: 0,
+            cpIndex: 0, lap: 1,
             
             init() {
                 this.scene = new THREE.Scene();
                 this.scene.background = new THREE.Color(0x050510);
-                this.scene.fog = new THREE.Fog(0x050510, 100, 350); 
+                this.scene.fog = new THREE.Fog(0x050510, 100, 450); 
                 this.camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 1000);
                 this.renderer = new THREE.WebGLRenderer({ antialias: true });
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
                 this.renderer.shadowMap.enabled = true;
                 document.body.appendChild(this.renderer.domElement);
-                
+
                 const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
                 this.scene.add(hemi);
                 const sun = new THREE.DirectionalLight(0xffffff, 1.2);
                 sun.position.set(100, 200, 50);
                 sun.castShadow = true;
-                sun.shadow.mapSize.width = 2048; sun.shadow.mapSize.height = 2048;
                 this.scene.add(sun);
 
                 this.buildWorld();
                 this.setupInputs();
                 this.connect();
                 
-                // Waypoint Marker
-                const geo = new THREE.CylinderGeometry(1, 1, 200, 16);
-                const mat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.5 });
-                this.waypointMesh = new THREE.Mesh(geo, mat);
-                this.waypointMesh.visible = false;
-                this.scene.add(this.waypointMesh);
-
                 window.addEventListener('resize', () => {
                     this.camera.aspect = window.innerWidth/window.innerHeight;
                     this.camera.updateProjectionMatrix();
                     this.renderer.setSize(window.innerWidth, window.innerHeight);
                 });
                 window.addEventListener('click', () => this.audio.init(), {once:true});
-                
-                // Map Click Listeners
-                const mapCanvas = document.getElementById('big-map-canvas');
-                mapCanvas.addEventListener('mousedown', (e) => {
-                    const rect = mapCanvas.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
-                    const y = e.clientY - rect.top;
-                    // Canvas is 600x600. World is 4000x4000 (-2000 to 2000)
-                    const worldX = (x / 600) * 4000 - 2000;
-                    const worldZ = (y / 600) * 4000 - 2000;
-                    this.setWaypoint(worldX, worldZ);
-                });
-
                 this.animate = this.animate.bind(this);
                 requestAnimationFrame(this.animate);
             },
 
             buildWorld() {
                 this.simplex = new SimplexNoise();
+                // Terrain
                 const geo = new THREE.PlaneGeometry(4000, 4000, 200, 200);
                 const pos = geo.attributes.position;
                 for(let i=0; i<pos.count; i++) {
@@ -306,57 +286,85 @@
                 terrain.receiveShadow = true;
                 this.scene.add(terrain);
 
-                this.createRingTrack(0, 0, 105, 155, 0xff0055); // OVAL
-                
-                // CITY
-                const cityGroup = new THREE.Group();
-                const boxGeo = new THREE.BoxGeometry(20, 100, 20);
-                const boxMat = new THREE.MeshStandardMaterial({color:0x333});
-                for(let i=0; i<50; i++) {
-                    const b = new THREE.Mesh(boxGeo, boxMat);
-                    b.position.set((Math.random()-0.5)*400, 50, (Math.random()-0.5)*400 - 600);
-                    b.scale.y = Math.random() + 0.5;
-                    cityGroup.add(b);
-                }
-                this.scene.add(cityGroup);
-                this.createRingTrack(0, -600, 80, 120, 0x00f3ff);
+                // --- GENERATE COMPLEX TRACKS ---
+                this.createTrack(0, "SERPENT", [
+                    new THREE.Vector3(0,0,0), new THREE.Vector3(100,0,200), new THREE.Vector3(0,0,400), 
+                    new THREE.Vector3(-200,0,300), new THREE.Vector3(-100,0,0)
+                ], 0xff0055, true);
 
-                // RALLY
-                this.createRingTrack(600, 0, 100, 140, 0xffaa00);
+                this.createTrack(1, "NEON CITY", [
+                    new THREE.Vector3(0,0,-600), new THREE.Vector3(300,0,-600), new THREE.Vector3(300,0,-900),
+                    new THREE.Vector3(0,0,-900), new THREE.Vector3(0,0,-800), new THREE.Vector3(-100,0,-800),
+                    new THREE.Vector3(-100,0,-600)
+                ], 0x00f3ff, true); // City layout
+
+                // CITY BUILDINGS
+                const boxGeo = new THREE.BoxGeometry(40, 150, 40);
+                const boxMat = new THREE.MeshStandardMaterial({color:0x222});
+                for(let i=0; i<40; i++) {
+                    const b = new THREE.Mesh(boxGeo, boxMat);
+                    b.position.set(-200 + Math.random()*600, 75, -1000 + Math.random()*500);
+                    // Don't spawn on track area roughly
+                    this.scene.add(b);
+                }
+
+                this.createTrack(2, "CANYON", [
+                    new THREE.Vector3(600,0,0), new THREE.Vector3(900,20,100), new THREE.Vector3(1000,-10,300),
+                    new THREE.Vector3(800,10,500), new THREE.Vector3(500,0,300)
+                ], 0xffaa00, true);
             },
 
-            createRingTrack(x, z, rIn, rOut, color) {
-                const geo = new THREE.RingGeometry(rIn, rOut, 64);
-                const mat = new THREE.MeshStandardMaterial({ color: 0x111 });
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.rotation.x = -Math.PI/2;
-                mesh.position.set(x, 0.6, z);
+            // Creates a smooth spline track
+            createTrack(id, name, points, color, closed) {
+                const curve = new THREE.CatmullRomCurve3(points);
+                curve.closed = closed;
+                const tubeGeo = new THREE.TubeGeometry(curve, 100, 15, 4, closed);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x111, side: THREE.DoubleSide });
+                const mesh = new THREE.Mesh(tubeGeo, mat);
+                mesh.position.y = 0.5;
                 mesh.receiveShadow = true;
                 this.scene.add(mesh);
-                const border = new THREE.Mesh(new THREE.TorusGeometry(rOut, 1, 16, 100), new THREE.MeshBasicMaterial({color:color}));
-                border.rotation.x = Math.PI/2; border.position.set(x,1,z);
-                this.scene.add(border);
+
+                // Barriers (Sides)
+                const wire = new THREE.Mesh(new THREE.TubeGeometry(curve, 100, 16, 3, closed), new THREE.MeshBasicMaterial({color:color, wireframe:true}));
+                wire.position.y = 2;
+                this.scene.add(wire);
+
+                // Store Track Data
+                const spacedPoints = curve.getSpacedPoints(40);
+                this.tracks.push({ 
+                    id, name, 
+                    curve, 
+                    checkpoints: spacedPoints, // Many invisible gates
+                    spawn: points[0],
+                    color 
+                });
             },
 
             getHeight(x, z) {
-                if(Math.sqrt(x*x + z*z) < 200) return 0;
-                if(Math.sqrt(x*x + (z+600)*(z+600)) < 200) return 0;
-                if(Math.sqrt((x-600)*(x-600) + z*z) < 200) return 0;
-                return Math.max(0, this.simplex.noise2D(x*0.005, z*0.005) * 30);
+                // Flatten track areas roughly
+                if(x > -300 && x < 300 && z > -100 && z < 500) return 0; // Track 0
+                if(z < -500) return 0; // City
+                // Canyon height variation
+                let y = Math.max(0, this.simplex.noise2D(x*0.003, z*0.003) * 40);
+                if(x > 400) y += Math.sin(x*0.02)*10; // Bumps
+                return y;
             },
 
             teleport(trackId) {
                 if(!this.myCar) return;
                 this.racing = false;
+                this.currentTrack = trackId;
+                const t = this.tracks[trackId];
+                this.myCar.pos.copy(t.spawn);
+                this.myCar.pos.y = 5;
                 this.myCar.velocity.set(0,0,0);
                 this.myCar.speed = 0;
-                if(trackId === 0) this.myCar.pos.set(130, 2, 0);
-                else if(trackId === 1) this.myCar.pos.set(100, 2, -600);
-                else if(trackId === 2) this.myCar.pos.set(730, 2, 0);
                 this.myCar.lastSafePos.copy(this.myCar.pos);
-                this.notify("WARPING TO ZONE " + (trackId+1));
+                this.notify(`WARPING TO: ${t.name}`);
             },
 
+            // --- GAMEPLAY ---
             spawnMe(carId) {
                 if(this.myCar) this.scene.remove(this.myCar.mesh);
                 const colors = [0x3366ff, 0xff3333, 0xffaa00, 0xcc00ff];
@@ -404,23 +412,25 @@
                         document.getElementById('join-btn').style.display = 'block';
                         document.getElementById('lap-counter').style.display = 'none';
                         document.getElementById('lap-val').innerText = '1';
-                        this.myCar.lap = 1; this.myCar.checkpoint = 0;
+                        this.cpIndex = 0; this.lap = 1;
                     }
                 });
                 this.socket.on('raceStart', (data) => {
                     this.racing = true;
                     this.myCar.speed = 0;
-                    this.myCar.lap = 1;
-                    this.myCar.checkpoint = 0;
                     this.myCar.velocity.set(0,0,0);
-                    const pos = data.grid[this.myId];
-                    if(pos) {
-                        this.myCar.pos.set(pos.x, 2, pos.z);
-                        this.myCar.rotVel = 0;
-                        const q = new THREE.Quaternion();
-                        q.setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI);
-                        this.myCar.quat = q;
-                    }
+                    // Spawn at current track start
+                    const t = this.tracks[this.currentTrack];
+                    this.myCar.pos.copy(t.spawn);
+                    this.myCar.pos.y = 2;
+                    // Look at 2nd point
+                    const next = t.checkpoints[1];
+                    this.myCar.mesh.lookAt(next); 
+                    this.myCar.quat.copy(this.myCar.mesh.quaternion); // Sync physics rot
+                    
+                    this.cpIndex = 0;
+                    this.lap = 1;
+
                     document.getElementById('join-btn').style.display = 'none';
                     document.getElementById('lap-counter').style.display = 'block';
                     this.notify("🟢 GO! GO! GO!");
@@ -447,7 +457,6 @@
                     if(e.key === "Shift") this.input.Shift = false;
                     if(e.key.toLowerCase() === 'r') this.respawn();
                     if(e.key.toLowerCase() === 'c') this.camIndex = (this.camIndex + 1) % 3;
-                    if(e.key.toLowerCase() === 'm') this.toggleBigMap();
                 });
             },
 
@@ -456,8 +465,6 @@
                 this.myCar.pos.y += 3;
                 this.myCar.speed = 0;
                 this.myCar.velocity.set(0,0,0);
-                this.myCar.rotVel = 0;
-                this.myCar.quat.set(0,0,0,1);
             },
 
             emitSmoke(pos) {
@@ -474,25 +481,44 @@
             
             checkLaps() {
                 if(!this.racing) return;
-                const pos = this.myCar.pos;
-                if(Math.abs(pos.z) > 200) return;
-                const angle = Math.atan2(pos.z, pos.x);
-                let region = -1;
-                if(Math.abs(angle - Math.PI) < 0.6 || Math.abs(angle + Math.PI) < 0.6) region = 0;
-                else if(Math.abs(angle + Math.PI/2) < 0.6) region = 1;
-                else if(Math.abs(angle) < 0.6) region = 2;
-                else if(Math.abs(angle - Math.PI/2) < 0.6) region = 3;
-                const cp = this.myCar.checkpoint;
-                if(region === (cp + 1) % 4) {
-                    this.myCar.checkpoint = region;
+                const t = this.tracks[this.currentTrack];
+                const cpList = t.checkpoints;
+                
+                // Target next CP
+                let nextCPIndex = (this.cpIndex + 1) % cpList.length;
+                let target = cpList[nextCPIndex];
+                
+                // Distance to target
+                if(this.myCar.pos.distanceTo(target) < 25) {
+                    this.cpIndex = nextCPIndex;
                     this.myCar.lastSafePos.copy(this.myCar.pos);
-                    if(region === 0 && cp === 3) {
-                        this.myCar.lap++;
-                        document.getElementById('lap-val').innerText = Math.min(this.myCar.lap, 5);
-                        this.socket.emit('lapComplete', this.myCar.lap);
-                        if(this.myCar.lap > 5) { this.racing = false; this.notify("RACE FINISHED!"); }
+                    
+                    // Lap Complete
+                    if(this.cpIndex === 0) {
+                        this.lap++;
+                        document.getElementById('lap-val').innerText = Math.min(this.lap, 5);
+                        this.socket.emit('lapComplete', {lap: this.lap});
+                        if(this.lap > 5) { this.racing = false; this.notify("RACE FINISHED!"); }
+                        else this.notify("LAP " + this.lap);
                     }
                 }
+            },
+            
+            // Check if we are on the road (Distance to spline)
+            checkOffRoad() {
+                if(!this.myCar) return false;
+                const t = this.tracks[this.currentTrack];
+                // Approximate: find closest point in spline
+                // Full spline check is heavy, so we check distance to current CP segment
+                const p1 = t.checkpoints[this.cpIndex];
+                const p2 = t.checkpoints[(this.cpIndex + 1) % t.checkpoints.length];
+                
+                // Simple distance check to points, rough approximation
+                // If > 20 units away from EITHER point, check logic
+                if(this.myCar.pos.distanceTo(p1) > 30 && this.myCar.pos.distanceTo(p2) > 30) {
+                    return false; // Off road
+                }
+                return true;
             },
 
             updateCam() {
@@ -506,86 +532,47 @@
                 this.camera.lookAt(this.myCar.pos);
             },
 
-            // --- MAP LOGIC ---
-            drawMap(canvasId) {
-                const cvs = document.getElementById(canvasId);
+            drawMinimap() {
+                const cvs = document.getElementById('minimap-canvas');
                 const ctx = cvs.getContext('2d');
-                const w = cvs.width;
-                const h = cvs.height;
-                ctx.clearRect(0,0,w,h);
-                
+                ctx.clearRect(0,0,200,200);
                 ctx.save();
-                // Map range -2000 to 2000. Scale to canvas.
-                ctx.translate(w/2, h/2);
-                const scale = w / 4000;
+                ctx.translate(100, 100);
+                const scale = 0.15;
                 
-                // Draw Tracks
-                ctx.strokeStyle = "#444"; ctx.lineWidth = 10;
-                // Oval
-                ctx.beginPath(); ctx.arc(0, 0, 130 * scale, 0, Math.PI*2); ctx.stroke();
-                // City
-                ctx.beginPath(); ctx.arc(0, -600 * scale, 100 * scale, 0, Math.PI*2); ctx.stroke();
-                // Rally
-                ctx.beginPath(); ctx.arc(600 * scale, 0, 120 * scale, 0, Math.PI*2); ctx.stroke();
-
-                // Waypoint
-                if(this.waypoint) {
-                    ctx.fillStyle = "#00f3ff";
+                // Draw all tracks
+                this.tracks.forEach(t => {
+                    ctx.strokeStyle = "#444";
                     ctx.beginPath();
-                    ctx.arc(this.waypoint.x * scale, this.waypoint.z * scale, 8, 0, Math.PI*2);
-                    ctx.fill();
-                    // Pulse ring
-                    ctx.beginPath();
-                    ctx.arc(this.waypoint.x * scale, this.waypoint.z * scale, 20, 0, Math.PI*2);
-                    ctx.strokeStyle = "#00f3ff"; ctx.lineWidth=2; ctx.stroke();
-                }
+                    t.checkpoints.forEach((p, i) => {
+                        if(i===0) ctx.moveTo(p.x*scale, p.z*scale);
+                        else ctx.lineTo(p.x*scale, p.z*scale);
+                    });
+                    ctx.closePath();
+                    ctx.stroke();
+                });
 
                 // Players
                 Object.values(this.players).forEach(p => {
                     const m = p.mesh;
                     ctx.fillStyle = "#ff0055";
-                    ctx.beginPath(); ctx.arc(m.position.x*scale, m.position.z*scale, 4, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(m.position.x*scale, m.position.z*scale, 2, 0, Math.PI*2); ctx.fill();
                 });
-
+                
                 // Me
-                if(this.myCar) {
-                    const p = this.myCar.pos;
-                    ctx.fillStyle = "white";
-                    ctx.beginPath(); ctx.arc(p.x*scale, p.z*scale, 6, 0, Math.PI*2); ctx.fill();
-                    // Cone of view
-                    ctx.beginPath();
-                    ctx.moveTo(p.x*scale, p.z*scale);
-                    const rot = new THREE.Euler().setFromQuaternion(this.myCar.quat).y;
-                    ctx.arc(p.x*scale, p.z*scale, 20, -rot - Math.PI/2 - 0.5, -rot - Math.PI/2 + 0.5);
-                    ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.fill();
-                }
+                const me = this.myCar.pos;
+                ctx.fillStyle = "#00f3ff";
+                ctx.beginPath(); ctx.arc(me.x*scale, me.z*scale, 3, 0, Math.PI*2); ctx.fill();
+                
                 ctx.restore();
-            },
-
-            toggleBigMap() {
-                const m = document.getElementById('big-map');
-                m.style.display = m.style.display==='flex'?'none':'flex';
-            },
-
-            setWaypoint(x, z) {
-                this.waypoint = {x, z};
-                this.waypointMesh.position.set(x, 100, z);
-                this.waypointMesh.visible = true;
-                this.notify("WAYPOINT SET");
-                this.toggleBigMap();
-            },
-
-            clearWaypoint() {
-                this.waypoint = null;
-                this.waypointMesh.visible = false;
-                this.toggleBigMap();
             },
 
             animate() {
                 requestAnimationFrame(this.animate);
                 if(this.myCar) {
                     const hFn = (x,z) => this.getHeight(x,z);
-                    this.myCar.update(this.input, 0.016, hFn);
+                    const onRoad = this.checkOffRoad();
+                    this.myCar.update(this.input, 0.016, hFn, onRoad);
                     this.checkLaps();
                     this.updateCam();
                     this.audio.update(Math.abs(this.myCar.speed) / 2.5);
@@ -595,12 +582,7 @@
                         x: this.myCar.pos.x, y: this.myCar.pos.y, z: this.myCar.pos.z,
                         qx: this.myCar.quat.x, qy: this.myCar.quat.y, qz: this.myCar.quat.z, qw: this.myCar.quat.w
                     });
-                    
-                    // Update Maps
-                    this.drawMap('minimap-canvas');
-                    if(document.getElementById('big-map').style.display === 'flex') {
-                        this.drawMap('big-map-canvas');
-                    }
+                    this.drawMinimap();
                 }
                 if(this.smoke) {
                     for(let i=this.smoke.length-1; i>=0; i--) {
