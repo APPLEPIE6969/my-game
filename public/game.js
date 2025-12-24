@@ -29,10 +29,10 @@ class AudioController {
     }
     update(speed) {
         if(!this.init) return;
-        // Pitch based on speed relative to max (approx 2.0)
+        // Pitch based on speed
         const pitch = 0.5 + (speed / 2.0); 
         this.src.playbackRate.setTargetAtTime(pitch, this.ctx.currentTime, 0.1);
-        this.filter.frequency.setTargetAtTime(200 + (speed * 1500), this.ctx.currentTime, 0.1);
+        this.filter.frequency.setTargetAtTime(200 + (speed * 2000), this.ctx.currentTime, 0.1);
         this.gain.gain.setTargetAtTime(0.3 + (speed * 0.2), this.ctx.currentTime, 0.1);
     }
 }
@@ -44,7 +44,6 @@ class CarFactory {
     static create(color) {
         const car = new THREE.Group();
         
-        // High Quality Materials
         const mainColor = new THREE.MeshStandardMaterial({ 
             color: color, 
             roughness: 0.2,  
@@ -109,7 +108,6 @@ class CarFactory {
         const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 24); 
         const tireMat = new THREE.MeshStandardMaterial({color:0x111111, roughness: 0.9});
         
-        // Front Left, Front Right, Rear Left, Rear Right
         const positions = [
             {x: 1.1, z: 1.4}, {x: -1.1, z: 1.4}, 
             {x: 1.1, z: -1.4}, {x: -1.1, z: -1.4}
@@ -131,7 +129,7 @@ class CarFactory {
 }
 
 // ========================================================
-// 🏎️ PHYSICS (FIXED: SPEEDS, STEERING & MOUNTAINS)
+// 🏎️ PHYSICS (SMOOTH STEERING & STABLE ROTATION)
 // ========================================================
 class CarPhysics {
     constructor(stats, color) {
@@ -139,141 +137,141 @@ class CarPhysics {
         this.mesh = CarFactory.create(color);
         this.pos = new THREE.Vector3(0, 20, 0); 
         
-        // Movement Vectors
         this.velocity = new THREE.Vector3(0,0,0);
-        this.forward = new THREE.Vector3(0,0,-1); // Car starts facing -Z
+        this.speed = 0;
+        this.steeringValue = 0; // Current steering angle (interpolated)
+        
+        // Vectors for orientation
+        this.forward = new THREE.Vector3(0,0,-1);
         this.up = new THREE.Vector3(0,1,0);
-        
-        this.currentSpeed = 0;
-        this.turnSpeed = 0;
+        this.right = new THREE.Vector3(1,0,0);
+
         this.grounded = false;
-        
         this.checkpoint = 0;
         this.lap = 1;
         
-        // Quaternions for rotation
-        this.rotationQ = new THREE.Quaternion();
+        // Quaternions
+        this.quaternion = new THREE.Quaternion();
     }
 
     update(inputs, dt, terrainFn) {
-        // 1. Terrain Height Check
-        const groundY = terrainFn(this.pos.x, this.pos.z);
+        // 1. Terrain & Gravity
+        const groundHeight = terrainFn(this.pos.x, this.pos.z);
         
-        // 2. Gravity
-        this.velocity.y -= 0.035; // GTA Style Gravity
-        this.pos.add(this.velocity);
+        // Gravity
+        this.velocity.y -= 0.04; 
+        
+        // Next Position Prediction
+        let nextY = this.pos.y + this.velocity.y;
 
-        // 3. Ground Collision & Alignment
-        if (this.pos.y <= groundY + 0.5) {
-            this.pos.y = groundY + 0.5;
+        // Ground Collision
+        if (nextY <= groundHeight + 0.5) {
+            this.pos.y = groundHeight + 0.5;
             this.velocity.y = 0;
             this.grounded = true;
         } else {
+            this.pos.y = nextY;
             this.grounded = false;
         }
 
-        // 4. Input Processing
+        // 2. Input Smoothing (The "Too Instant" Fix)
+        let targetSteer = 0;
+        if (inputs.ArrowLeft) targetSteer = 1;
+        if (inputs.ArrowRight) targetSteer = -1;
+        
+        // Smoothly interpolate steering (Lerp)
+        // 0.1 is the smoothness factor. Lower = smoother/slower.
+        this.steeringValue = THREE.MathUtils.lerp(this.steeringValue, targetSteer, 0.1);
+
         let throttle = 0;
         if (inputs.ArrowUp) throttle = 1;
         if (inputs.ArrowDown) throttle = -1;
 
-        let steer = 0;
-        if (inputs.ArrowLeft) steer = 1;  // LEFT
-        if (inputs.ArrowRight) steer = -1; // RIGHT
-
-        // 5. Ground Physics
+        // 3. Movement Physics
         if (this.grounded) {
-            // Acceleration (Respecting Max Speed)
+            // Acceleration with Max Speed Cap
             if (throttle > 0) {
-                if (this.currentSpeed < this.stats.maxSpeed) {
-                    this.currentSpeed += this.stats.accel;
-                }
+                if (this.speed < this.stats.maxSpeed) this.speed += this.stats.accel;
             } else if (throttle < 0) {
-                if (this.currentSpeed > -this.stats.maxSpeed * 0.3) { // Reverse speed cap
-                    this.currentSpeed -= this.stats.accel;
-                }
+                if (this.speed > -this.stats.maxSpeed * 0.4) this.speed -= this.stats.accel;
             } else {
-                // Drag / Deceleration
-                this.currentSpeed *= 0.98;
+                this.speed *= 0.98; // Friction
             }
 
-            // Steering Logic (Fixed: Simple Rotation)
-            if (Math.abs(this.currentSpeed) > 0.1) {
-                // Sharper turning at low speeds, slightly wider at high speeds
-                const turnFactor = Math.abs(this.currentSpeed) > 1.0 ? 0.04 : 0.06;
-                // Reverse steering logic when going backwards
-                const dir = this.currentSpeed > 0 ? 1 : -1;
-                this.turnSpeed = steer * turnFactor * dir;
+            // Apply Steering to Rotation Vector
+            if (Math.abs(this.speed) > 0.1) {
+                const dir = this.speed > 0 ? 1 : -1;
+                // Turn speed depends on how fast you go
+                const turnRate = 0.05 * this.steeringValue * dir;
                 
-                // Apply rotation to Forward Vector around Up Vector
-                this.forward.applyAxisAngle(this.up, this.turnSpeed);
+                // Rotate the Forward vector around the Up vector
+                this.forward.applyAxisAngle(this.up, turnRate).normalize();
+                this.right.crossVectors(this.up, this.forward).normalize();
             }
 
-            // --- MOUNTAIN ROTATION FIX ---
-            // Sample terrain to find the surface normal
-            const d = 2.0; // Sample distance
+            // --- STABLE MOUNTAIN ALIGNMENT ---
+            // Calculate Terrain Normal
+            const d = 2.0; 
             const hF = terrainFn(this.pos.x + this.forward.x * d, this.pos.z + this.forward.z * d);
             const hB = terrainFn(this.pos.x - this.forward.x * d, this.pos.z - this.forward.z * d);
-            
-            const right = new THREE.Vector3().crossVectors(this.forward, this.up).normalize();
-            const hL = terrainFn(this.pos.x + right.x * d, this.pos.z + right.z * d);
-            const hR = terrainFn(this.pos.x - right.x * d, this.pos.z - right.z * d);
+            const hL = terrainFn(this.pos.x - this.right.x * d, this.pos.z - this.right.z * d);
+            const hR = terrainFn(this.pos.x + this.right.x * d, this.pos.z + this.right.z * d);
 
-            // Construct Normal
             const vecZ = new THREE.Vector3(this.forward.x * 2 * d, hF - hB, this.forward.z * 2 * d);
-            const vecX = new THREE.Vector3(right.x * 2 * d, hL - hR, right.z * 2 * d);
+            const vecX = new THREE.Vector3(this.right.x * 2 * d, hL - hR, this.right.z * 2 * d);
             const normal = new THREE.Vector3().crossVectors(vecZ, vecX).normalize();
-            
-            // Smoothly align 'Up' to 'Normal'
+
+            // Smoothly blend current Up to new Normal (avoids jitter)
             this.up.lerp(normal, 0.2).normalize();
+            
+            // Re-calculate Forward/Right based on new Up to keep them orthogonal
+            this.right.crossVectors(this.up, this.forward).normalize(); // Recalc Right
+            this.forward.crossVectors(this.right, this.up).normalize(); // Recalc Forward
 
-            // Re-orthogonalize Forward to be perpendicular to new Up
-            const rightVec = new THREE.Vector3().crossVectors(this.up, this.forward).normalize();
-            this.forward.crossVectors(rightVec, this.up).normalize();
-
-            // Launch Logic (GTA Style)
-            // If slope changes drastically (ramp), add vertical velocity
+            // Jump Logic
             const slope = (hF - this.pos.y);
-            if (slope > 1.0 && this.currentSpeed > 1.5) {
-                this.velocity.y = slope * 0.2 * this.currentSpeed;
+            if (slope > 1.5 && this.speed > 1.5) {
+                this.velocity.y = slope * 0.25 * this.speed;
                 this.grounded = false;
             }
 
         } else {
-            // 6. Air Physics
-            // Minimal drag in air
-            this.currentSpeed *= 0.995;
+            // Air Physics
+            this.speed *= 0.995; // Air drag
             
-            // GTA Air Control (Pitch & Yaw)
-            if (throttle !== 0) {
-                // Pitch (Nose Up/Down)
-                const pitchAxis = new THREE.Vector3().crossVectors(this.forward, this.up).normalize();
-                this.forward.applyAxisAngle(pitchAxis, throttle * 0.03);
-                this.up.applyAxisAngle(pitchAxis, throttle * 0.03);
+            // GTA Air Control
+            if (throttle !== 0) { // Pitch
+                const axis = this.right.clone();
+                this.forward.applyAxisAngle(axis, throttle * 0.03);
+                this.up.applyAxisAngle(axis, throttle * 0.03);
             }
-            if (steer !== 0) {
-                // Yaw (Rotate left/right in air)
-                this.forward.applyAxisAngle(this.up, steer * 0.03);
+            if (targetSteer !== 0) { // Yaw/Roll
+                this.forward.applyAxisAngle(this.up, targetSteer * 0.03);
+                this.right.applyAxisAngle(this.up, targetSteer * 0.03);
             }
         }
 
-        // Apply Velocity to Position (Horizontal)
-        this.pos.x += this.forward.x * this.currentSpeed;
-        this.pos.z += this.forward.z * this.currentSpeed;
+        // Apply velocity to position
+        this.pos.add(this.forward.clone().multiplyScalar(this.speed));
 
-        // 7. Update Mesh Orientation Matrix
-        const matrix = new THREE.Matrix4();
-        matrix.lookAt(this.pos, this.pos.clone().add(this.forward), this.up);
-        this.rotationQ.setFromRotationMatrix(matrix);
+        // 4. Update Visual Rotation
+        // Construct a rotation matrix from our Forward, Up, and Right vectors
+        const m = new THREE.Matrix4();
+        m.makeBasis(this.right, this.up, this.forward.clone().negate()); // ThreeJS Z is backwards
+        this.quaternion.setFromRotationMatrix(m);
         
-        this.mesh.quaternion.slerp(this.rotationQ, 0.5);
+        // Smoothly rotate the mesh to match physics
+        this.mesh.quaternion.slerp(this.quaternion, 0.2); 
         this.mesh.position.copy(this.pos);
 
-        // Wheel Visuals
-        this.mesh.userData.wheels.children.forEach(w => w.rotation.x += this.currentSpeed * 0.5);
+        // Wheel visual rotation
+        this.mesh.userData.wheels.children.forEach(w => w.rotation.x += this.speed * 0.5);
         
-        // Smoke
-        if (inputs.Shift && this.grounded && Math.abs(this.currentSpeed) > 0.5) {
+        // Front wheel steering visual
+        // (Assuming first two children are front wheels in Factory)
+        // Not implemented in Factory structure strictly, but keeps it simple.
+
+        if (inputs.Shift && this.grounded && Math.abs(this.speed) > 0.5) {
             Game.emitSmoke(this.pos);
         }
     }
@@ -411,7 +409,7 @@ const Game = {
         this.levelData = { curve: curve, checkpoints: curve.getSpacedPoints(40), spawn: points[0] };
 
         if(this.myCar) {
-            this.spawnMe(this.myId ? 0 : 0); // Re-init car
+            this.spawnMe(this.myId ? 0 : 0);
         }
 
         this.updateChunks(new THREE.Vector3(0,0,0));
@@ -506,21 +504,22 @@ const Game = {
         if(this.myCar) this.scene.remove(this.myCar.mesh);
         const colors = [0x3366ff, 0xff3333, 0xffaa00, 0xcc00ff];
         
-        // TUNED SPEED STATS (KM/H Approximation)
-        // Speed 1.0 approx 120kmh. 
-        // Accel tuned to reach maxSpeed comfortably.
+        // TUNED SPEED STATS
+        // Speed 1.0 ~= 120kmh
         const stats = [
-            {accel:0.02, maxSpeed: 0.98},  // 117 km/h (Rookie)
-            {accel:0.03, maxSpeed: 1.42},  // 170 km/h (Street)
-            {accel:0.04, maxSpeed: 2.00},  // 240 km/h (Rally)
-            {accel:0.05, maxSpeed: 2.66}   // 320 km/h (F1)
+            {accel:0.02, maxSpeed: 0.98},  // 117 km/h
+            {accel:0.03, maxSpeed: 1.42},  // 170 km/h
+            {accel:0.04, maxSpeed: 2.00},  // 240 km/h
+            {accel:0.05, maxSpeed: 2.66}   // 320 km/h
         ];
         
         this.myCar = new CarPhysics(stats[carId] || stats[0], colors[carId] || colors[0]);
         this.scene.add(this.myCar.mesh);
         this.myCar.pos.copy(this.levelData.spawn);
         this.myCar.pos.y = 12;
-        this.myCar.forward.set(0,0,-1); // Reset orientation
+        this.myCar.forward.set(0,0,-1);
+        this.myCar.up.set(0,1,0);
+        this.myCar.right.set(1,0,0);
     },
 
     connect() {
@@ -554,15 +553,16 @@ const Game = {
         this.socket.on('raceStart', () => {
             this.racing = true;
             this.myCar.lap = 1;
-            this.myCar.currentSpeed = 0;
+            this.myCar.speed = 0;
             this.myCar.velocity.set(0,0,0);
             const start = this.levelData.spawn;
             this.myCar.pos.copy(start);
             this.myCar.pos.y += 2;
             
-            // Reset Heading
+            // Reset Orientation
             this.myCar.forward.set(0,0,-1);
             this.myCar.up.set(0,1,0);
+            this.myCar.right.set(1,0,0);
             
             document.getElementById('join-btn').style.display = 'none';
             document.getElementById('lap-counter').style.display = 'block';
@@ -598,13 +598,12 @@ const Game = {
         const safe = cps[idx];
         this.myCar.pos.copy(safe);
         this.myCar.pos.y += 5; 
-        this.myCar.currentSpeed = 0;
+        this.myCar.speed = 0;
         this.myCar.velocity.set(0,0,0);
         this.myCar.up.set(0,1,0);
-        
-        // Point to next checkpoint
         const next = cps[(idx+1)%cps.length];
         this.myCar.forward.subVectors(next, safe).normalize();
+        this.myCar.right.crossVectors(this.myCar.up, this.myCar.forward).normalize();
     },
 
     joinRace() { this.socket.emit('joinRace'); },
@@ -615,13 +614,10 @@ const Game = {
         else if(this.camIndex === 1) offset = new THREE.Vector3(0, 20, 35);
         else offset = new THREE.Vector3(0, 80, 0);
         
-        // Camera logic that follows physics orientation smoothly
-        const camPos = this.myCar.pos.clone();
-        // Add offset rotated by car direction
+        // Use camera follow physics
         const rot = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), this.myCar.forward.clone().negate());
         offset.applyQuaternion(rot);
-        
-        const target = camPos.add(offset);
+        const target = this.myCar.pos.clone().add(offset);
         this.camera.position.lerp(target, 0.1);
         this.camera.lookAt(this.myCar.pos);
     },
@@ -634,7 +630,6 @@ const Game = {
         ctx.save();
         ctx.translate(110, 110);
         
-        // Calc rotation based on forward vector
         const theta = Math.atan2(this.myCar.forward.x, this.myCar.forward.z);
         ctx.rotate(theta - Math.PI);
         
@@ -715,14 +710,14 @@ const Game = {
             this.myCar.update(this.input, 0.016, hFn);
             this.checkLapLogic(); 
             this.updateCam(); 
-            this.audio.update(Math.abs(this.myCar.currentSpeed) / 2.5);
+            this.audio.update(Math.abs(this.myCar.speed) / 2.5);
             this.drawMinimap();
-            document.getElementById('speed').innerText = Math.floor(Math.abs(this.myCar.currentSpeed) * 120);
-            document.getElementById('rpm').style.width = Math.min(100, Math.abs(this.myCar.currentSpeed)*60) + "%";
+            document.getElementById('speed').innerText = Math.floor(Math.abs(this.myCar.speed) * 120);
+            document.getElementById('rpm').style.width = Math.min(100, Math.abs(this.myCar.speed)*60) + "%";
 
             this.socket.emit('move', {
                 x: this.myCar.pos.x, y: this.myCar.pos.y, z: this.myCar.pos.z,
-                qx: this.myCar.rotationQ.x, qy: this.myCar.rotationQ.y, qz: this.myCar.rotationQ.z, qw: this.myCar.rotationQ.w
+                qx: this.myCar.quaternion.x, qy: this.myCar.quaternion.y, qz: this.myCar.quaternion.z, qw: this.myCar.quaternion.w
             });
             
             this.sun.position.set(this.myCar.pos.x + 100, 200, this.myCar.pos.z + 50);
