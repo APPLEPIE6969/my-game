@@ -29,9 +29,11 @@ class AudioController {
     }
     update(speed) {
         if(!this.init) return;
-        this.src.playbackRate.setTargetAtTime(0.5 + (speed*1.5), this.ctx.currentTime, 0.1);
-        this.filter.frequency.setTargetAtTime(100 + (speed*1000), this.ctx.currentTime, 0.1);
-        this.gain.gain.setTargetAtTime(0.3 + (speed*0.4), this.ctx.currentTime, 0.1);
+        // Pitch based on speed relative to max (approx 2.0)
+        const pitch = 0.5 + (speed / 2.0); 
+        this.src.playbackRate.setTargetAtTime(pitch, this.ctx.currentTime, 0.1);
+        this.filter.frequency.setTargetAtTime(200 + (speed * 1500), this.ctx.currentTime, 0.1);
+        this.gain.gain.setTargetAtTime(0.3 + (speed * 0.2), this.ctx.currentTime, 0.1);
     }
 }
 
@@ -42,76 +44,85 @@ class CarFactory {
     static create(color) {
         const car = new THREE.Group();
         
+        // High Quality Materials
         const mainColor = new THREE.MeshStandardMaterial({ 
             color: color, 
-            roughness: 0.1,  
-            metalness: 0.6,
-            emissive: 0x111111,
-            emissiveIntensity: 0.2
+            roughness: 0.2,  
+            metalness: 0.7,
+            emissive: color,
+            emissiveIntensity: 0.1
         });
         const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
         const glassMat = new THREE.MeshStandardMaterial({ 
             color: 0x000000, 
             roughness: 0.0, 
-            metalness: 0.9,
-            opacity: 0.7,
+            metalness: 1.0,
+            opacity: 0.6,
             transparent: true
         });
         const glowRed = new THREE.MeshBasicMaterial({ color: 0xff0000 });
         const glowWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-        const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.6, 4.6), mainColor);
-        chassis.position.y = 0.6;
+        // Body
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.5, 4.2), mainColor);
+        chassis.position.y = 0.5;
         chassis.castShadow = true;
         car.add(chassis);
 
-        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 2.2), glassMat);
-        cabin.position.set(0, 1.15, -0.2);
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.4, 2.0), glassMat);
+        cabin.position.set(0, 1.0, -0.2);
         car.add(cabin);
 
-        const fenderGeo = new THREE.BoxGeometry(2.3, 0.4, 1.2);
+        // Fenders
+        const fenderGeo = new THREE.BoxGeometry(2.2, 0.4, 1.0);
         const frontFender = new THREE.Mesh(fenderGeo, mainColor);
-        frontFender.position.set(0, 0.6, -1.4);
+        frontFender.position.set(0, 0.5, -1.4);
         car.add(frontFender);
         const rearFender = new THREE.Mesh(fenderGeo, mainColor);
-        rearFender.position.set(0, 0.6, 1.3);
+        rearFender.position.set(0, 0.5, 1.4);
         car.add(rearFender);
 
-        const wing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.5), blackMat);
-        wing.position.set(0, 1.3, 2.1);
-        const poleL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.2), blackMat);
-        poleL.position.set(0.8, 1.1, 2.1);
+        // Spoiler
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.05, 0.6), blackMat);
+        wing.position.set(0, 1.1, 2.0);
+        const poleL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.1), blackMat);
+        poleL.position.set(0.6, 0.9, 2.0);
         const poleR = poleL.clone();
-        poleR.position.set(-0.8, 1.1, 2.1);
+        poleR.position.set(-0.6, 0.9, 2.0);
         car.add(wing); car.add(poleL); car.add(poleR);
 
+        // Lights
         const tailL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), glowRed);
-        tailL.position.set(0.6, 0.7, 2.31);
+        tailL.position.set(0.6, 0.6, 2.15);
         const tailR = tailL.clone();
-        tailR.position.set(-0.6, 0.7, 2.31);
+        tailR.position.set(-0.6, 0.6, 2.15);
         car.add(tailL); car.add(tailR);
 
         const headL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), glowWhite);
-        headL.position.set(0.6, 0.6, -2.31);
+        headL.position.set(0.6, 0.6, -2.15);
         const headR = headL.clone();
-        headR.position.set(-0.6, 0.6, -2.31);
+        headR.position.set(-0.6, 0.6, -2.15);
         car.add(headL); car.add(headR);
 
+        // Wheels
         const wheelGroup = new THREE.Group();
-        const tireGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 32); 
-        const rimGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.36, 16);
-        const tireMat = new THREE.MeshStandardMaterial({color:0x111111, roughness: 0.8});
-        const rimMat = new THREE.MeshStandardMaterial({color:0x888888, metalness:0.9, roughness: 0.2});
+        const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 24); 
+        const tireMat = new THREE.MeshStandardMaterial({color:0x111111, roughness: 0.9});
+        
+        // Front Left, Front Right, Rear Left, Rear Right
+        const positions = [
+            {x: 1.1, z: 1.4}, {x: -1.1, z: 1.4}, 
+            {x: 1.1, z: -1.4}, {x: -1.1, z: -1.4}
+        ];
 
-        [{x:1.1, z:1.3}, {x:-1.1, z:1.3}, {x:1.1, z:-1.4}, {x:-1.1, z:-1.4}].forEach(p => {
-            const w = new THREE.Group();
-            const t = new THREE.Mesh(tireGeo, tireMat); t.rotation.z = Math.PI/2;
-            const r = new THREE.Mesh(rimGeo, rimMat); r.rotation.z = Math.PI/2;
-            w.add(t); w.add(r);
-            w.position.set(p.x, 0.42, p.z);
-            w.castShadow = true;
-            wheelGroup.add(w);
+        positions.forEach(p => {
+            const t = new THREE.Mesh(tireGeo, tireMat);
+            t.rotation.z = Math.PI/2;
+            t.position.set(p.x, 0.4, p.z);
+            t.castShadow = true;
+            wheelGroup.add(t);
         });
+        
         car.userData.wheels = wheelGroup;
         car.add(wheelGroup);
 
@@ -120,140 +131,149 @@ class CarFactory {
 }
 
 // ========================================================
-// 🏎️ PHYSICS (FIXED ROTATION LOGIC)
+// 🏎️ PHYSICS (FIXED: SPEEDS, STEERING & MOUNTAINS)
 // ========================================================
 class CarPhysics {
     constructor(stats, color) {
         this.stats = stats;
         this.mesh = CarFactory.create(color);
-        this.pos = new THREE.Vector3(0, 10, 0); 
-        this.speed = 0;
-        this.heading = 0; // Standard Y-axis rotation (radians)
+        this.pos = new THREE.Vector3(0, 20, 0); 
+        
+        // Movement Vectors
+        this.velocity = new THREE.Vector3(0,0,0);
+        this.forward = new THREE.Vector3(0,0,-1); // Car starts facing -Z
+        this.up = new THREE.Vector3(0,1,0);
+        
+        this.currentSpeed = 0;
+        this.turnSpeed = 0;
+        this.grounded = false;
+        
         this.checkpoint = 0;
         this.lap = 1;
-        this.drag = 0.985;
-        this.vy = 0;
-        this.onGround = false;
         
-        // Visual Rotation Quaternion
-        this.quat = new THREE.Quaternion();
+        // Quaternions for rotation
+        this.rotationQ = new THREE.Quaternion();
     }
 
     update(inputs, dt, terrainFn) {
-        // 1. Terrain Detection
-        const groundHeight = terrainFn(this.pos.x, this.pos.z);
+        // 1. Terrain Height Check
+        const groundY = terrainFn(this.pos.x, this.pos.z);
         
-        // 2. Gravity & Jumping
-        this.vy -= 0.02; 
-        this.pos.y += this.vy;
+        // 2. Gravity
+        this.velocity.y -= 0.035; // GTA Style Gravity
+        this.pos.add(this.velocity);
 
-        if(this.pos.y <= groundHeight) {
-            this.pos.y = groundHeight;
-            this.vy = 0;
-            this.onGround = true;
+        // 3. Ground Collision & Alignment
+        if (this.pos.y <= groundY + 0.5) {
+            this.pos.y = groundY + 0.5;
+            this.velocity.y = 0;
+            this.grounded = true;
         } else {
-            this.onGround = false;
+            this.grounded = false;
         }
 
-        // 3. Engine & Steering
-        let accel = 0;
-        if(inputs.ArrowUp) accel = -this.stats.accel;
-        if(inputs.ArrowDown) accel = this.stats.accel;
+        // 4. Input Processing
+        let throttle = 0;
+        if (inputs.ArrowUp) throttle = 1;
+        if (inputs.ArrowDown) throttle = -1;
 
-        // Ground Physics
-        if(this.onGround) {
-            this.speed += accel;
-            this.speed *= this.drag;
-            
-            // Turning (Affects Heading)
-            if(Math.abs(this.speed) > 0.1) {
-                const dir = this.speed > 0 ? 1 : -1;
-                const turnForce = this.stats.turn * 3.5; 
-                if(inputs.ArrowLeft) this.heading += turnForce * dt * dir;
-                if(inputs.ArrowRight) this.heading -= turnForce * dt * dir;
+        let steer = 0;
+        if (inputs.ArrowLeft) steer = 1;  // LEFT
+        if (inputs.ArrowRight) steer = -1; // RIGHT
+
+        // 5. Ground Physics
+        if (this.grounded) {
+            // Acceleration (Respecting Max Speed)
+            if (throttle > 0) {
+                if (this.currentSpeed < this.stats.maxSpeed) {
+                    this.currentSpeed += this.stats.accel;
+                }
+            } else if (throttle < 0) {
+                if (this.currentSpeed > -this.stats.maxSpeed * 0.3) { // Reverse speed cap
+                    this.currentSpeed -= this.stats.accel;
+                }
+            } else {
+                // Drag / Deceleration
+                this.currentSpeed *= 0.98;
             }
+
+            // Steering Logic (Fixed: Simple Rotation)
+            if (Math.abs(this.currentSpeed) > 0.1) {
+                // Sharper turning at low speeds, slightly wider at high speeds
+                const turnFactor = Math.abs(this.currentSpeed) > 1.0 ? 0.04 : 0.06;
+                // Reverse steering logic when going backwards
+                const dir = this.currentSpeed > 0 ? 1 : -1;
+                this.turnSpeed = steer * turnFactor * dir;
+                
+                // Apply rotation to Forward Vector around Up Vector
+                this.forward.applyAxisAngle(this.up, this.turnSpeed);
+            }
+
+            // --- MOUNTAIN ROTATION FIX ---
+            // Sample terrain to find the surface normal
+            const d = 2.0; // Sample distance
+            const hF = terrainFn(this.pos.x + this.forward.x * d, this.pos.z + this.forward.z * d);
+            const hB = terrainFn(this.pos.x - this.forward.x * d, this.pos.z - this.forward.z * d);
+            
+            const right = new THREE.Vector3().crossVectors(this.forward, this.up).normalize();
+            const hL = terrainFn(this.pos.x + right.x * d, this.pos.z + right.z * d);
+            const hR = terrainFn(this.pos.x - right.x * d, this.pos.z - right.z * d);
+
+            // Construct Normal
+            const vecZ = new THREE.Vector3(this.forward.x * 2 * d, hF - hB, this.forward.z * 2 * d);
+            const vecX = new THREE.Vector3(right.x * 2 * d, hL - hR, right.z * 2 * d);
+            const normal = new THREE.Vector3().crossVectors(vecZ, vecX).normalize();
+            
+            // Smoothly align 'Up' to 'Normal'
+            this.up.lerp(normal, 0.2).normalize();
+
+            // Re-orthogonalize Forward to be perpendicular to new Up
+            const rightVec = new THREE.Vector3().crossVectors(this.up, this.forward).normalize();
+            this.forward.crossVectors(rightVec, this.up).normalize();
+
+            // Launch Logic (GTA Style)
+            // If slope changes drastically (ramp), add vertical velocity
+            const slope = (hF - this.pos.y);
+            if (slope > 1.0 && this.currentSpeed > 1.5) {
+                this.velocity.y = slope * 0.2 * this.currentSpeed;
+                this.grounded = false;
+            }
+
         } else {
-            // Air Physics
-            this.speed *= 0.995; 
-            // Slight air control
-            if(Math.abs(this.speed) > 0.1) {
-                 const dir = this.speed > 0 ? 1 : -1;
-                 if(inputs.ArrowLeft) this.heading += (this.stats.turn * 0.5) * dt * dir;
-                 if(inputs.ArrowRight) this.heading -= (this.stats.turn * 0.5) * dt * dir;
+            // 6. Air Physics
+            // Minimal drag in air
+            this.currentSpeed *= 0.995;
+            
+            // GTA Air Control (Pitch & Yaw)
+            if (throttle !== 0) {
+                // Pitch (Nose Up/Down)
+                const pitchAxis = new THREE.Vector3().crossVectors(this.forward, this.up).normalize();
+                this.forward.applyAxisAngle(pitchAxis, throttle * 0.03);
+                this.up.applyAxisAngle(pitchAxis, throttle * 0.03);
+            }
+            if (steer !== 0) {
+                // Yaw (Rotate left/right in air)
+                this.forward.applyAxisAngle(this.up, steer * 0.03);
             }
         }
 
-        // 4. Movement Calculation
-        // Determine forward vector based on heading
-        const velocityX = Math.sin(this.heading) * this.speed;
-        const velocityZ = Math.cos(this.heading) * this.speed;
-        
-        this.pos.x += velocityX;
-        this.pos.z += velocityZ;
+        // Apply Velocity to Position (Horizontal)
+        this.pos.x += this.forward.x * this.currentSpeed;
+        this.pos.z += this.forward.z * this.currentSpeed;
 
-        // 5. STABLE ROTATION LOGIC (The Fix)
-        // Instead of rotating the object blindly, we calculate the surface Normal
-        // and construct a matrix that aligns Up to Normal, and Z to Forward.
+        // 7. Update Mesh Orientation Matrix
+        const matrix = new THREE.Matrix4();
+        matrix.lookAt(this.pos, this.pos.clone().add(this.forward), this.up);
+        this.rotationQ.setFromRotationMatrix(matrix);
         
-        let upVector = new THREE.Vector3(0, 1, 0); // Default Up (Air)
-        
-        if (this.onGround) {
-            // Wider sampling for smoother hill climbing
-            const d = 2.5; 
-            const hF = terrainFn(this.pos.x + Math.sin(this.heading) * d, this.pos.z + Math.cos(this.heading) * d); // Front
-            const hB = terrainFn(this.pos.x - Math.sin(this.heading) * d, this.pos.z - Math.cos(this.heading) * d); // Back
-            const hL = terrainFn(this.pos.x + Math.sin(this.heading + Math.PI/2) * d, this.pos.z + Math.cos(this.heading + Math.PI/2) * d); // Left
-            const hR = terrainFn(this.pos.x - Math.sin(this.heading + Math.PI/2) * d, this.pos.z - Math.cos(this.heading + Math.PI/2) * d); // Right
-
-            // Calculate Normal Vector (Up direction of the hill)
-            const vecZ = new THREE.Vector3(0, hF - hB, 2 * d).normalize(); // Slope Forward/Back
-            const vecX = new THREE.Vector3(2 * d, hR - hL, 0).normalize(); // Slope Left/Right
-            
-            // Rotate these local vectors to match heading
-            vecZ.applyAxisAngle(new THREE.Vector3(0,1,0), this.heading);
-            vecX.applyAxisAngle(new THREE.Vector3(0,1,0), this.heading);
-            
-            // Cross product gets the normal
-            upVector.crossVectors(vecZ, vecX).normalize();
-
-            // Ramp Launch Logic
-            const slopeRise = (hF - groundHeight);
-            if(slopeRise > 0.8 && this.speed < -0.8) { 
-                this.vy += Math.abs(this.speed) * 0.15; // Yeet
-            }
-        }
-
-        // Construct Orientation Matrix
-        const targetMat = new THREE.Matrix4();
-        const eye = new THREE.Vector3(0,0,0);
-        
-        // Forward Vector is where we are going
-        const target = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
-        // Ensure Forward is orthogonal to Up (Project onto plane)
-        target.sub(upVector.clone().multiplyScalar(target.dot(upVector))).normalize();
-        
-        // Create LookAt Matrix (Custom Basis construction)
-        // Z = Forward, Y = Up, X = Right
-        const zAxis = target.negate(); // ThreeJS looks down -Z
-        const yAxis = upVector;
-        const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
-        
-        targetMat.makeBasis(xAxis, yAxis, zAxis);
-        
-        const targetQ = new THREE.Quaternion().setFromRotationMatrix(targetMat);
-        
-        // Smooth Rotation (Slerp)
-        this.mesh.quaternion.slerp(targetQ, 0.15); 
+        this.mesh.quaternion.slerp(this.rotationQ, 0.5);
         this.mesh.position.copy(this.pos);
-        
-        // Need to update the stored quaternion for socket sending
-        this.quat.copy(this.mesh.quaternion);
 
-        // Wheel Spin
-        this.mesh.userData.wheels.children.forEach(w => w.rotation.x += this.speed);
+        // Wheel Visuals
+        this.mesh.userData.wheels.children.forEach(w => w.rotation.x += this.currentSpeed * 0.5);
         
-        // Visual Smoke
-        if((inputs.Shift && Math.abs(this.speed) > 0.5 && this.onGround)) {
+        // Smoke
+        if (inputs.Shift && this.grounded && Math.abs(this.currentSpeed) > 0.5) {
             Game.emitSmoke(this.pos);
         }
     }
@@ -306,7 +326,7 @@ const Game = {
         this.sun = sun;
 
         // Checkpoint Ring
-        const cpGeo = new THREE.TorusGeometry(10, 1, 16, 32);
+        const cpGeo = new THREE.TorusGeometry(8, 1, 16, 32);
         const cpMat = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.8 });
         this.checkpointMesh = new THREE.Mesh(cpGeo, cpMat);
         this.checkpointMesh.rotation.x = Math.PI/2;
@@ -391,16 +411,7 @@ const Game = {
         this.levelData = { curve: curve, checkpoints: curve.getSpacedPoints(40), spawn: points[0] };
 
         if(this.myCar) {
-            this.myCar.pos.copy(points[0]);
-            this.myCar.pos.y += 2; 
-            this.myCar.velocity.set(0,0,0);
-            this.myCar.speed = 0;
-            this.myCar.heading = 0;
-            this.myCar.vy = 0;
-            this.racing = false;
-            this.myCar.lap = 1; 
-            this.myCar.checkpoint = 0;
-            this.checkpointMesh.visible = false;
+            this.spawnMe(this.myId ? 0 : 0); // Re-init car
         }
 
         this.updateChunks(new THREE.Vector3(0,0,0));
@@ -495,17 +506,21 @@ const Game = {
         if(this.myCar) this.scene.remove(this.myCar.mesh);
         const colors = [0x3366ff, 0xff3333, 0xffaa00, 0xcc00ff];
         
+        // TUNED SPEED STATS (KM/H Approximation)
+        // Speed 1.0 approx 120kmh. 
+        // Accel tuned to reach maxSpeed comfortably.
         const stats = [
-            {accel:0.0146, turn:0.06}, 
-            {accel:0.0212, turn:0.065}, 
-            {accel:0.0300, turn:0.07}, 
-            {accel:0.0400, turn:0.08}  
+            {accel:0.02, maxSpeed: 0.98},  // 117 km/h (Rookie)
+            {accel:0.03, maxSpeed: 1.42},  // 170 km/h (Street)
+            {accel:0.04, maxSpeed: 2.00},  // 240 km/h (Rally)
+            {accel:0.05, maxSpeed: 2.66}   // 320 km/h (F1)
         ];
         
-        this.myCar = new CarPhysics(stats[carId], colors[carId]);
+        this.myCar = new CarPhysics(stats[carId] || stats[0], colors[carId] || colors[0]);
         this.scene.add(this.myCar.mesh);
         this.myCar.pos.copy(this.levelData.spawn);
         this.myCar.pos.y = 12;
+        this.myCar.forward.set(0,0,-1); // Reset orientation
     },
 
     connect() {
@@ -539,14 +554,15 @@ const Game = {
         this.socket.on('raceStart', () => {
             this.racing = true;
             this.myCar.lap = 1;
-            this.myCar.speed = 0;
-            this.myCar.vy = 0;
+            this.myCar.currentSpeed = 0;
+            this.myCar.velocity.set(0,0,0);
             const start = this.levelData.spawn;
             this.myCar.pos.copy(start);
             this.myCar.pos.y += 2;
             
-            // Reset Heading to face forward along the track
-            this.myCar.heading = Math.PI; 
+            // Reset Heading
+            this.myCar.forward.set(0,0,-1);
+            this.myCar.up.set(0,1,0);
             
             document.getElementById('join-btn').style.display = 'none';
             document.getElementById('lap-counter').style.display = 'block';
@@ -581,12 +597,14 @@ const Game = {
         const idx = this.myCar.checkpoint; 
         const safe = cps[idx];
         this.myCar.pos.copy(safe);
-        this.myCar.pos.y += 2; 
-        this.myCar.speed = 0;
-        this.myCar.vy = 0;
+        this.myCar.pos.y += 5; 
+        this.myCar.currentSpeed = 0;
+        this.myCar.velocity.set(0,0,0);
+        this.myCar.up.set(0,1,0);
+        
         // Point to next checkpoint
         const next = cps[(idx+1)%cps.length];
-        this.myCar.heading = Math.atan2(next.x - safe.x, next.z - safe.z);
+        this.myCar.forward.subVectors(next, safe).normalize();
     },
 
     joinRace() { this.socket.emit('joinRace'); },
@@ -597,9 +615,13 @@ const Game = {
         else if(this.camIndex === 1) offset = new THREE.Vector3(0, 20, 35);
         else offset = new THREE.Vector3(0, 80, 0);
         
-        // Apply camera rotation based on car's orientation
-        offset.applyQuaternion(this.myCar.quat);
-        const target = this.myCar.pos.clone().add(offset);
+        // Camera logic that follows physics orientation smoothly
+        const camPos = this.myCar.pos.clone();
+        // Add offset rotated by car direction
+        const rot = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), this.myCar.forward.clone().negate());
+        offset.applyQuaternion(rot);
+        
+        const target = camPos.add(offset);
         this.camera.position.lerp(target, 0.1);
         this.camera.lookAt(this.myCar.pos);
     },
@@ -611,8 +633,11 @@ const Game = {
         if(!this.myCar) return;
         ctx.save();
         ctx.translate(110, 110);
-        const rot = new THREE.Euler().setFromQuaternion(this.myCar.quat).y;
-        ctx.rotate(rot - Math.PI); 
+        
+        // Calc rotation based on forward vector
+        const theta = Math.atan2(this.myCar.forward.x, this.myCar.forward.z);
+        ctx.rotate(theta - Math.PI);
+        
         const scale = 0.5;
         const px = this.myCar.pos.x;
         const pz = this.myCar.pos.z;
@@ -690,14 +715,14 @@ const Game = {
             this.myCar.update(this.input, 0.016, hFn);
             this.checkLapLogic(); 
             this.updateCam(); 
-            this.audio.update(Math.abs(this.myCar.speed) / 2.5);
+            this.audio.update(Math.abs(this.myCar.currentSpeed) / 2.5);
             this.drawMinimap();
-            document.getElementById('speed').innerText = Math.floor(Math.abs(this.myCar.speed) * 120);
-            document.getElementById('rpm').style.width = Math.min(100, Math.abs(this.myCar.speed)*60) + "%";
+            document.getElementById('speed').innerText = Math.floor(Math.abs(this.myCar.currentSpeed) * 120);
+            document.getElementById('rpm').style.width = Math.min(100, Math.abs(this.myCar.currentSpeed)*60) + "%";
 
             this.socket.emit('move', {
                 x: this.myCar.pos.x, y: this.myCar.pos.y, z: this.myCar.pos.z,
-                qx: this.myCar.quat.x, qy: this.myCar.quat.y, qz: this.myCar.quat.z, qw: this.myCar.quat.w
+                qx: this.myCar.rotationQ.x, qy: this.myCar.rotationQ.y, qz: this.myCar.rotationQ.z, qw: this.myCar.rotationQ.w
             });
             
             this.sun.position.set(this.myCar.pos.x + 100, 200, this.myCar.pos.z + 50);
