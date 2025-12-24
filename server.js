@@ -8,39 +8,53 @@ app.use(express.static(__dirname));
 let players = {};
 
 io.on('connection', (socket) => {
-    console.log('New player: ' + socket.id);
+    console.log('Racer joined: ' + socket.id);
 
-    // Create a new player
+    // Initial data for new player
     players[socket.id] = {
-        x: Math.floor(Math.random() * 700) + 50,
-        y: Math.floor(Math.random() * 500) + 50,
-        color: 'hsl(' + Math.random() * 360 + ', 100%, 50%)',
-        id: socket.id
+        id: socket.id,
+        x: 0, z: 0, ry: 0, // Position & Rotation
+        speed: 0,
+        steering: 0,
+        drift: false, // Is the player drifting?
+        color: Math.random() * 0xffffff,
+        name: "Racer " + Math.floor(Math.random() * 1000)
     };
 
-    // Send data
     socket.emit('currentPlayers', players);
     socket.broadcast.emit('newPlayer', players[socket.id]);
 
-    // Handle Movement
-    socket.on('playerMovement', (movementData) => {
+    socket.on('playerMovement', (data) => {
         if (players[socket.id]) {
-            players[socket.id].x = movementData.x;
-            players[socket.id].y = movementData.y;
-            socket.broadcast.emit('playerMoved', players[socket.id]);
+            const p = players[socket.id];
+            p.x = data.x;
+            p.z = data.z;
+            p.ry = data.ry;
+            p.speed = data.speed;
+            p.steering = data.steering;
+            p.drift = data.drift;
+            
+            // Broadcast highly optimized packet
+            socket.broadcast.emit('playerMoved', p);
         }
     });
 
-    // Handle Disconnect
+    socket.on('setDetails', (data) => {
+        if(players[socket.id]) {
+            players[socket.id].name = data.name;
+            players[socket.id].color = data.color;
+            io.emit('updateDetails', players[socket.id]);
+        }
+    });
+
     socket.on('disconnect', () => {
-        console.log('Player left: ' + socket.id);
+        console.log('Racer left: ' + socket.id);
         delete players[socket.id];
         io.emit('disconnect', socket.id);
     });
 });
 
-// --- THIS IS THE PART I FIXED FOR YOU ---
 const port = process.env.PORT || 3000;
 http.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+    console.log(`🏎️  High-Performance Server running on port ${port}`);
 });
