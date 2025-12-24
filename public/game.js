@@ -36,7 +36,7 @@ class AudioController {
 }
 
 // ========================================================
-// 🏎️ CAR FACTORY (Visuals)
+// 🏎️ CAR FACTORY
 // ========================================================
 class CarFactory {
     static create(color) {
@@ -120,7 +120,7 @@ class CarFactory {
 }
 
 // ========================================================
-// 🏎️ PHYSICS (GTA-Style Jump & Slope Alignment)
+// 🏎️ PHYSICS
 // ========================================================
 class CarPhysics {
     constructor(stats, color) {
@@ -134,21 +134,15 @@ class CarPhysics {
         this.checkpoint = 0;
         this.lap = 1;
         this.drag = 0.985;
-        this.vy = 0; // Vertical Velocity
+        this.vy = 0;
         this.onGround = false;
     }
 
     update(inputs, dt, terrainFn) {
-        // 1. Calculate Ground Height at current position
         const groundHeight = terrainFn(this.pos.x, this.pos.z);
-        
-        // 2. Physics & Gravity
         this.vy -= 0.02; // Gravity
-        
-        // Apply vertical movement
         this.pos.y += this.vy;
 
-        // Ground Collision
         if(this.pos.y <= groundHeight) {
             this.pos.y = groundHeight;
             this.vy = 0;
@@ -157,7 +151,6 @@ class CarPhysics {
             this.onGround = false;
         }
 
-        // 3. Engine & Steering
         let accel = 0;
         if(inputs.ArrowUp) accel = -this.stats.accel;
         if(inputs.ArrowDown) accel = this.stats.accel;
@@ -165,8 +158,6 @@ class CarPhysics {
         if(this.onGround) {
             this.speed += accel;
             this.speed *= this.drag;
-            
-            // Turning only works well on ground
             if(Math.abs(this.speed) > 0.1) {
                 const dir = this.speed > 0 ? 1 : -1;
                 const turnForce = this.stats.turn * 3.5; 
@@ -174,9 +165,7 @@ class CarPhysics {
                 if(inputs.ArrowRight) this.rotVel += turnForce * dt * dir;
             }
         } else {
-            // Air Resistance (minimal speed loss in air)
             this.speed *= 0.995; 
-            // Minimal air control (optional, keeps it fair)
             if(Math.abs(this.speed) > 0.1) {
                  const dir = this.speed > 0 ? 1 : -1;
                  if(inputs.ArrowLeft) this.rotVel -= (this.stats.turn * 0.5) * dt * dir;
@@ -186,7 +175,6 @@ class CarPhysics {
 
         this.rotVel *= 0.85;
 
-        // 4. Orientation & Jumps
         const q = new THREE.Quaternion();
         q.setFromAxisAngle(new THREE.Vector3(0,1,0), this.rotVel);
         this.quat.multiply(q).normalize();
@@ -194,45 +182,35 @@ class CarPhysics {
         const fwd = new THREE.Vector3(0,0,1).applyQuaternion(this.quat);
         const targetVel = fwd.clone().multiplyScalar(this.speed);
         
-        // Apply horizontal velocity
         this.pos.x += targetVel.x;
         this.pos.z += targetVel.z;
 
-        // 5. Slope Alignment (The "Flat on Mountain" fix)
-        // We calculate the normal of the terrain by sampling points around the car
+        // Slope alignment
         let upVector = new THREE.Vector3(0, 1, 0);
-        
         if (this.onGround) {
-            // Sample terrain around car to get slope
-            const d = 1.5; // Offset distance
-            const hF = terrainFn(this.pos.x + fwd.x * d, this.pos.z + fwd.z * d); // Front Height
-            const hB = terrainFn(this.pos.x - fwd.x * d, this.pos.z - fwd.z * d); // Back Height
+            const d = 1.5;
+            const hF = terrainFn(this.pos.x + fwd.x * d, this.pos.z + fwd.z * d); 
+            const hB = terrainFn(this.pos.x - fwd.x * d, this.pos.z - fwd.z * d); 
             const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat);
-            const hL = terrainFn(this.pos.x - right.x * d, this.pos.z - right.z * d); // Left Height
-            const hR = terrainFn(this.pos.x + right.x * d, this.pos.z + right.z * d); // Right Height
+            const hL = terrainFn(this.pos.x - right.x * d, this.pos.z - right.z * d); 
+            const hR = terrainFn(this.pos.x + right.x * d, this.pos.z + right.z * d); 
 
-            // Calculate Normal Vector based on heights
             const vec1 = new THREE.Vector3(fwd.x * 2 * d, hF - hB, fwd.z * 2 * d).normalize();
             const vec2 = new THREE.Vector3(right.x * 2 * d, hR - hL, right.z * 2 * d).normalize();
             upVector.crossVectors(vec1, vec2).normalize();
             
-            // JUMP LOGIC: If slope rises sharply, convert speed to vertical velocity
             const slopeRise = (hF - groundHeight);
-            if(slopeRise > 0.5 && this.speed < -0.5) { // Going forward fast up hill
-                this.vy += Math.abs(this.speed) * 0.1; // Launch!
+            if(slopeRise > 0.5 && this.speed < -0.5) { 
+                this.vy += Math.abs(this.speed) * 0.1; 
             }
         }
 
-        // Smoothly rotate car to match terrain normal
         const targetQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), upVector);
-        // Combine slope rotation with steering rotation
         const finalQ = targetQ.multiply(this.quat);
         
-        // Smooth interpolation so it doesn't snap instantly
         this.mesh.quaternion.slerp(finalQ, 0.2); 
         this.mesh.position.copy(this.pos);
 
-        // Visuals
         this.mesh.userData.wheels.children.forEach(w => w.rotation.x += this.speed);
         
         if((inputs.Shift && Math.abs(this.speed) > 0.5 && this.onGround) || (Math.abs(this.rotVel) > 0.05 && Math.abs(this.speed) > 1.0 && this.onGround)) {
@@ -251,13 +229,16 @@ const Game = {
     currentLevel: 0, levelData: null, simplex: new SimplexNoise(),
     
     // INFINITE TERRAIN CONFIG
-    chunkSize: 500, // Size of one terrain tile
-    renderDist: 2,  // Radius of chunks (2 = 5x5 grid)
-    chunks: {},     // Stores active chunks
+    chunkSize: 500, 
+    renderDist: 2,  
+    chunks: {},     
+
+    // CHECKPOINT MARKER
+    checkpointMesh: null,
 
     init() {
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 8000); // Massive view distance
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 8000);
         this.camera.position.set(0, 50, 100);
         this.camera.lookAt(0, 0, 0);
 
@@ -283,6 +264,14 @@ const Game = {
         sun.shadow.camera.bottom = -500;
         this.scene.add(sun);
         this.sun = sun;
+
+        // Create the Checkpoint Visual (Glowing Ring)
+        const cpGeo = new THREE.TorusGeometry(10, 1, 16, 32);
+        const cpMat = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.8 });
+        this.checkpointMesh = new THREE.Mesh(cpGeo, cpMat);
+        this.checkpointMesh.rotation.x = Math.PI/2;
+        this.checkpointMesh.visible = false; // Hide until race starts
+        this.scene.add(this.checkpointMesh);
 
         this.setupInputs();
         this.connect();
@@ -316,7 +305,7 @@ const Game = {
             fogColor = 0x87CEEB;
             this.groundColor = 0x2d6e32;
             this.scene.background = new THREE.Color(fogColor);
-            this.scene.fog = new THREE.FogExp2(fogColor, 0.001); // Reduced fog for view distance
+            this.scene.fog = new THREE.FogExp2(fogColor, 0.001);
             points = [
                 new THREE.Vector3(0,10,0), new THREE.Vector3(200,10,-100), new THREE.Vector3(400,10,0),
                 new THREE.Vector3(300,10,300), new THREE.Vector3(0,10,200), new THREE.Vector3(-200,10,100)
@@ -370,6 +359,7 @@ const Game = {
             this.racing = false;
             this.myCar.lap = 1; 
             this.myCar.checkpoint = 0;
+            this.checkpointMesh.visible = false;
         }
 
         this.updateChunks(new THREE.Vector3(0,0,0));
@@ -431,15 +421,42 @@ const Game = {
         if(!this.myCar || !this.racing) return;
         const cps = this.levelData.checkpoints;
         const nextIdx = (this.myCar.checkpoint + 1) % cps.length;
-        if(this.myCar.pos.distanceTo(cps[nextIdx]) < 60) {
+        const nextPos = cps[nextIdx];
+        
+        // Show Checkpoint
+        this.checkpointMesh.visible = true;
+        this.checkpointMesh.position.copy(nextPos);
+        this.checkpointMesh.position.y += 5; // Float
+        
+        // Color logic (Yellow = Normal, Green = Finish)
+        if(nextIdx === 0) this.checkpointMesh.material.color.setHex(0x00ff00);
+        else this.checkpointMesh.material.color.setHex(0xffff00);
+        
+        // Rotate Visual
+        this.checkpointMesh.rotation.y += 0.05;
+        this.checkpointMesh.rotation.x = Math.PI/2 + Math.sin(Date.now()*0.005)*0.2;
+
+        // Check Collision with Checkpoint (Increased Radius to 80)
+        if(this.myCar.pos.distanceTo(nextPos) < 80) {
             this.myCar.checkpoint = nextIdx;
+            
+            // Pulse Effect (Visual Feedback)
+            this.checkpointMesh.scale.set(1.5, 1.5, 1.5);
+            
             if(nextIdx === 0) {
                 this.myCar.lap++;
                 document.getElementById('lap-val').innerText = Math.min(this.myCar.lap, 5);
                 this.socket.emit('lapComplete', {lap: this.myCar.lap});
-                if(this.myCar.lap > 5) { this.racing = false; this.notify("FINISHED!"); }
+                if(this.myCar.lap > 5) { 
+                    this.racing = false; 
+                    this.checkpointMesh.visible = false;
+                    this.notify("FINISHED!"); 
+                }
             }
         }
+        
+        // Scale animation back to normal
+        this.checkpointMesh.scale.lerp(new THREE.Vector3(1,1,1), 0.1);
     },
 
     spawnMe(carId) {
@@ -500,6 +517,10 @@ const Game = {
             this.myCar.quat.copy(this.myCar.mesh.quaternion);
             document.getElementById('join-btn').style.display = 'none';
             document.getElementById('lap-counter').style.display = 'block';
+            
+            // Initial Checkpoint
+            this.myCar.checkpoint = 0;
+            this.checkpointMesh.visible = true;
             this.notify("🟢 GO!");
         });
     },
@@ -579,6 +600,16 @@ const Game = {
             ctx.fillStyle = "#ff0055";
             ctx.beginPath(); ctx.arc(rx, rz, 5, 0, Math.PI*2); ctx.fill();
         });
+        
+        // Draw Checkpoint on Minimap
+        if(this.racing && this.checkpointMesh.visible) {
+             const cpPos = this.checkpointMesh.position;
+             const cpx = (cpPos.x - px) * scale;
+             const cpz = (cpPos.z - pz) * scale;
+             ctx.fillStyle = "#ffff00";
+             ctx.beginPath(); ctx.arc(cpx, cpz, 8, 0, Math.PI*2); ctx.fill();
+        }
+
         ctx.restore();
         ctx.fillStyle = "#00f3ff";
         ctx.beginPath(); ctx.arc(110, 110, 6, 0, Math.PI*2); ctx.fill();
@@ -639,7 +670,6 @@ const Game = {
                 qx: this.myCar.quat.x, qy: this.myCar.quat.y, qz: this.myCar.quat.z, qw: this.myCar.quat.w
             });
             
-            // Move sun with player so shadows don't disappear
             this.sun.position.set(this.myCar.pos.x + 100, 200, this.myCar.pos.z + 50);
             this.sun.target.position.copy(this.myCar.pos);
             this.sun.target.updateMatrixWorld();
