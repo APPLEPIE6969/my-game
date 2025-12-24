@@ -15,14 +15,12 @@ class AudioController {
         const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
         const data = buf.getChannelData(0);
         for(let i=0; i<bufSize; i++) data[i] = (Math.random()*2-1) * 0.5;
-        
         this.src = this.ctx.createBufferSource();
         this.src.buffer = buf;
         this.src.loop = true;
         this.filter = this.ctx.createBiquadFilter();
         this.filter.type = 'lowpass';
         this.gain = this.ctx.createGain();
-        
         this.src.connect(this.filter);
         this.filter.connect(this.gain);
         this.gain.connect(this.master);
@@ -44,11 +42,10 @@ class CarFactory {
     static create(color) {
         const car = new THREE.Group();
         
-        // BEAUTIFY: More reflective, shiny materials
         const mainColor = new THREE.MeshStandardMaterial({ 
             color: color, 
-            roughness: 0.1,  // Very smooth
-            metalness: 0.6,  // Metallic look
+            roughness: 0.1,  
+            metalness: 0.6,
             emissive: 0x111111,
             emissiveIntensity: 0.2
         });
@@ -63,18 +60,15 @@ class CarFactory {
         const glowRed = new THREE.MeshBasicMaterial({ color: 0xff0000 });
         const glowWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-        // Chassis
         const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.6, 4.6), mainColor);
         chassis.position.y = 0.6;
         chassis.castShadow = true;
         car.add(chassis);
 
-        // Cabin
         const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 2.2), glassMat);
         cabin.position.set(0, 1.15, -0.2);
         car.add(cabin);
 
-        // Fenders
         const fenderGeo = new THREE.BoxGeometry(2.3, 0.4, 1.2);
         const frontFender = new THREE.Mesh(fenderGeo, mainColor);
         frontFender.position.set(0, 0.6, -1.4);
@@ -83,7 +77,6 @@ class CarFactory {
         rearFender.position.set(0, 0.6, 1.3);
         car.add(rearFender);
 
-        // Spoiler
         const wing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.5), blackMat);
         wing.position.set(0, 1.3, 2.1);
         const poleL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.2), blackMat);
@@ -92,7 +85,6 @@ class CarFactory {
         poleR.position.set(-0.8, 1.1, 2.1);
         car.add(wing); car.add(poleL); car.add(poleR);
 
-        // Lights
         const tailL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), glowRed);
         tailL.position.set(0.6, 0.7, 2.31);
         const tailR = tailL.clone();
@@ -105,9 +97,8 @@ class CarFactory {
         headR.position.set(-0.6, 0.6, -2.31);
         car.add(headL); car.add(headR);
 
-        // Wheels
         const wheelGroup = new THREE.Group();
-        const tireGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 32); // Smoother wheels
+        const tireGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 32); 
         const rimGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.36, 16);
         const tireMat = new THREE.MeshStandardMaterial({color:0x111111, roughness: 0.8});
         const rimMat = new THREE.MeshStandardMaterial({color:0x888888, metalness:0.9, roughness: 0.2});
@@ -129,7 +120,7 @@ class CarFactory {
 }
 
 // ========================================================
-// 🏎️ PHYSICS (Arcade Style - No Slowdown)
+// 🏎️ PHYSICS
 // ========================================================
 class CarPhysics {
     constructor(stats, color) {
@@ -142,33 +133,30 @@ class CarPhysics {
         this.rotVel = 0;
         this.checkpoint = 0;
         this.lap = 1;
+        // Drag factor dictates terminal velocity. 
+        // 0.985 allows higher speeds but still has a limit.
+        this.drag = 0.985; 
     }
 
     update(inputs, dt, terrainFn) {
         const h = terrainFn(this.pos.x, this.pos.z);
         
         let accel = 0;
-        // Increased acceleration multiplier for punchier feel
-        if(inputs.ArrowUp) accel = -this.stats.accel * 1.5;
-        if(inputs.ArrowDown) accel = this.stats.accel * 1.5;
-        
-        // PHYSICS FIX: Removed the "OffRoad" penalty code completely.
-        // You now have max grip and speed everywhere.
+        if(inputs.ArrowUp) accel = -this.stats.accel;
+        if(inputs.ArrowDown) accel = this.stats.accel;
         
         this.speed += accel;
-        
-        // PHYSICS FIX: Reduced Drag (0.98 -> 0.99) allows significantly higher top speed
-        this.speed *= 0.99; 
+        this.speed *= this.drag;
 
         if(Math.abs(this.speed) > 0.1) {
             const dir = this.speed > 0 ? 1 : -1;
-            // Snappier turning
             const turnForce = this.stats.turn * 3.5; 
-            if(inputs.ArrowLeft) this.rotVel += turnForce * dt * dir;
-            if(inputs.ArrowRight) this.rotVel -= turnForce * dt * dir;
+            
+            // FIX: Steering Inverted - Swapped += and -=
+            if(inputs.ArrowLeft) this.rotVel -= turnForce * dt * dir; // Was +=
+            if(inputs.ArrowRight) this.rotVel += turnForce * dt * dir; // Was -=
         }
         
-        // Damping rotation
         this.rotVel *= 0.85;
 
         const q = new THREE.Quaternion();
@@ -176,7 +164,6 @@ class CarPhysics {
         this.quat.multiply(q).normalize();
 
         const fwd = new THREE.Vector3(0,0,1).applyQuaternion(this.quat);
-        // Drifting Logic: Grip is slightly reduced when holding shift, but speed remains high
         const grip = inputs.Shift ? 0.02 : 0.2; 
         const targetVel = fwd.clone().multiplyScalar(this.speed);
         this.velocity.lerp(targetVel, grip);
@@ -187,12 +174,10 @@ class CarPhysics {
         this.mesh.position.copy(this.pos);
         this.mesh.quaternion.copy(this.quat);
         
-        // Visuals
         this.mesh.userData.wheels.children.forEach(w => w.rotation.x += this.speed);
-        this.mesh.children[0].rotation.z = -this.rotVel * 5; // Banking
-        this.mesh.children[0].rotation.x = this.speed * 0.03; // Pitch
+        this.mesh.children[0].rotation.z = -this.rotVel * 5; 
+        this.mesh.children[0].rotation.x = this.speed * 0.03; 
 
-        // Smoke particles if drifting or high speed turning
         if((inputs.Shift && Math.abs(this.speed) > 0.5) || (Math.abs(this.rotVel) > 0.05 && Math.abs(this.speed) > 1.0)) {
             Game.emitSmoke(this.pos);
         }
@@ -207,34 +192,38 @@ const Game = {
     input: { ArrowUp:false, ArrowDown:false, ArrowLeft:false, ArrowRight:false, Shift:false },
     players: {}, myCar: null, racing: false, camIndex: 0,
     currentLevel: 0, levelData: null, simplex: new SimplexNoise(),
+    
+    // INFINITE TERRAIN CONFIG
+    chunkSize: 500, // Size of one terrain tile
+    renderDist: 2,  // Radius of chunks (2 = 5x5 grid)
+    chunks: {},     // Stores active chunks
 
     init() {
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 5000); // Increased Far Clip
-        
-        // Initial "Spectator" Camera
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 5000);
         this.camera.position.set(0, 50, 100);
         this.camera.lookAt(0, 0, 0);
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer, prettier shadows
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         document.body.appendChild(this.renderer.domElement);
 
-        // BEAUTIFY: Lighting Setup
-        // 1. Hemisphere Light (Sky vs Ground color) - removes pitch black shadows
         const hemiLight = new THREE.HemisphereLight(0x00f3ff, 0xeb4034, 0.6);
         this.scene.add(hemiLight);
 
-        // 2. Main Sun
         const sun = new THREE.DirectionalLight(0xffffff, 1.2);
         sun.position.set(100, 200, 50);
         sun.castShadow = true;
-        sun.shadow.mapSize.width = 4096; // Higher resolution shadows
+        sun.shadow.mapSize.width = 4096;
         sun.shadow.mapSize.height = 4096;
         sun.shadow.camera.near = 0.5;
-        sun.shadow.camera.far = 500;
+        sun.shadow.camera.far = 1000; // Increased sun range
+        sun.shadow.camera.left = -500;
+        sun.shadow.camera.right = 500;
+        sun.shadow.camera.top = 500;
+        sun.shadow.camera.bottom = -500;
         this.scene.add(sun);
         this.sun = sun;
 
@@ -253,9 +242,13 @@ const Game = {
     },
 
     loadLevel(id) {
-        if(this.terrainMesh) this.scene.remove(this.terrainMesh);
+        // Clear old stuff
         if(this.trackMesh) { this.scene.remove(this.trackMesh); this.scene.remove(this.trackBorder); }
         if(this.scenery) this.scene.remove(this.scenery);
+        
+        // Clear Chunks
+        Object.values(this.chunks).forEach(m => this.scene.remove(m));
+        this.chunks = {};
 
         this.currentLevel = id;
         this.scenery = new THREE.Group();
@@ -263,11 +256,10 @@ const Game = {
 
         let points = [];
         let fogColor;
-        let ambientColor;
         
-        if(id === 0) { // SERPENT (Day)
+        if(id === 0) { // SERPENT
             fogColor = 0x87CEEB;
-            ambientColor = 0x2d6e32;
+            this.groundColor = 0x2d6e32;
             this.scene.background = new THREE.Color(fogColor);
             this.scene.fog = new THREE.FogExp2(fogColor, 0.0015);
             points = [
@@ -275,20 +267,19 @@ const Game = {
                 new THREE.Vector3(300,10,300), new THREE.Vector3(0,10,200), new THREE.Vector3(-200,10,100)
             ];
         } 
-        else if (id === 1) { // CITY (Night)
+        else if (id === 1) { // CITY
             fogColor = 0x050510;
-            ambientColor = 0x111111;
+            this.groundColor = 0x111111;
             this.scene.background = new THREE.Color(fogColor);
             this.scene.fog = new THREE.FogExp2(fogColor, 0.003);
             points = [
                 new THREE.Vector3(0,10,0), new THREE.Vector3(0,10,-400), new THREE.Vector3(400,10,-400),
                 new THREE.Vector3(400,10,0), new THREE.Vector3(200,10,200), new THREE.Vector3(-200,10,200)
             ];
-            this.spawnBuildings();
         }
-        else { // RALLY (Sunset)
+        else { // RALLY
             fogColor = 0xdcae96;
-            ambientColor = 0x8B4513;
+            this.groundColor = 0x8B4513;
             this.scene.background = new THREE.Color(fogColor);
             this.scene.fog = new THREE.FogExp2(fogColor, 0.002);
             points = [
@@ -297,50 +288,28 @@ const Game = {
             ];
         }
 
-        // BEAUTIFY: Track Material
+        // Generate Fixed Track (The Hub)
         const curve = new THREE.CatmullRomCurve3(points);
         curve.closed = true;
-        const tube = new THREE.TubeGeometry(curve, 100, 15, 5, true); // Higher detail (5 radial segments -> 3)
-        const trackMat = new THREE.MeshStandardMaterial({
-            color: 0x333333, 
-            roughness: 0.8,
-            metalness: 0.1
-        });
+        const tube = new THREE.TubeGeometry(curve, 100, 15, 5, true);
+        const trackMat = new THREE.MeshStandardMaterial({color: 0x333333, roughness: 0.8});
         this.trackMesh = new THREE.Mesh(tube, trackMat);
         this.trackMesh.rotation.x = Math.PI; 
         this.trackMesh.position.y = 0.2; 
         this.trackMesh.receiveShadow = true;
         this.scene.add(this.trackMesh);
 
-        // BEAUTIFY: Glowing Border
+        // Border
         const wire = new THREE.TubeGeometry(curve, 100, 16, 3, true);
-        const borderMat = new THREE.MeshBasicMaterial({
-            color: id===1 ? 0x00f3ff : 0xffffff, // Cyan in city, White elsewhere
-            wireframe: true,
-            transparent: true,
-            opacity: 0.5
-        });
+        const borderMat = new THREE.MeshBasicMaterial({color: id===1?0x00f3ff:0xffffff, wireframe:true, transparent:true, opacity:0.5});
         this.trackBorder = new THREE.Mesh(wire, borderMat);
         this.trackBorder.position.y = 1;
         this.scene.add(this.trackBorder);
 
-        // Terrain
-        const geo = new THREE.PlaneGeometry(3000, 3000, 128, 128); // Bigger terrain
-        const pos = geo.attributes.position;
-        for(let i=0; i<pos.count; i++) {
-            const x = pos.getX(i);
-            const y = pos.getY(i);
-            let h = this.getTerrainHeight(x, y);
-            pos.setZ(i, h);
-        }
-        geo.computeVertexNormals();
-        this.terrainMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color: ambientColor, roughness: 0.9}));
-        this.terrainMesh.rotation.x = -Math.PI/2;
-        this.terrainMesh.receiveShadow = true;
-        this.scene.add(this.terrainMesh);
-
+        // Store Data
         this.levelData = { curve: curve, checkpoints: curve.getSpacedPoints(40), spawn: points[0] };
 
+        // Respawn Car
         if(this.myCar) {
             this.myCar.pos.copy(points[0]);
             this.myCar.pos.y += 2; 
@@ -350,41 +319,80 @@ const Game = {
             this.myCar.lap = 1; 
             this.myCar.checkpoint = 0;
         }
+
+        // Force initial chunk generation at 0,0
+        this.updateChunks(new THREE.Vector3(0,0,0));
     },
 
-    spawnBuildings() {
-        const geo = new THREE.BoxGeometry(20, 100, 20);
-        const mat = new THREE.MeshStandardMaterial({
-            color: 0x111111, 
-            emissive: 0x001133, 
-            roughness: 0.2
-        });
+    // --- INFINITE TERRAIN LOGIC ---
+    updateChunks(pos) {
+        const cx = Math.floor(pos.x / this.chunkSize);
+        const cz = Math.floor(pos.z / this.chunkSize);
         
-        for(let i=0; i<80; i++) {
-            const b = new THREE.Mesh(geo, mat);
-            const x = (Math.random()-0.5)*1200;
-            const z = (Math.random()-0.5)*1200;
-            if(Math.sqrt(x*x+z*z) > 120) {
-                b.position.set(x, 50, z);
-                b.scale.set(Math.random()*2+1, Math.random()*3+1, Math.random()*2+1);
-                this.scenery.add(b);
+        const activeKeys = new Set();
+
+        // Generate chunks around player
+        for(let x = -this.renderDist; x <= this.renderDist; x++) {
+            for(let z = -this.renderDist; z <= this.renderDist; z++) {
+                const key = `${cx+x},${cz+z}`;
+                activeKeys.add(key);
+                if(!this.chunks[key]) {
+                    this.createChunk(cx+x, cz+z);
+                }
             }
         }
+
+        // Delete old chunks
+        Object.keys(this.chunks).forEach(key => {
+            if(!activeKeys.has(key)) {
+                this.scene.remove(this.chunks[key]);
+                this.chunks[key].geometry.dispose();
+                delete this.chunks[key];
+            }
+        });
+    },
+
+    createChunk(cx, cz) {
+        // Create a plane for this chunk
+        const geo = new THREE.PlaneGeometry(this.chunkSize, this.chunkSize, 32, 32);
+        const pos = geo.attributes.position;
+        
+        const offsetX = cx * this.chunkSize;
+        const offsetZ = cz * this.chunkSize;
+
+        for(let i=0; i<pos.count; i++) {
+            const px = pos.getX(i) + offsetX;
+            const py = -pos.getY(i) + offsetZ; // Plane is rotated -PI/2, so Y in geometry is Z in world
+            let h = this.getTerrainHeight(px, py);
+            pos.setZ(i, h);
+        }
+        geo.computeVertexNormals();
+        
+        const mat = new THREE.MeshStandardMaterial({color: this.groundColor, roughness: 0.9});
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI/2;
+        mesh.position.set(offsetX, 0, offsetZ);
+        mesh.receiveShadow = true;
+        
+        this.scene.add(mesh);
+        this.chunks[`${cx},${cz}`] = mesh;
     },
 
     getTerrainHeight(x, z) {
-        if (x*x + z*z < 3600) return 10; 
+        // Flat center for track
+        if (x*x + z*z < 40000) return 10; 
+        
+        // Procedural terrain everywhere else
         let h = this.simplex.noise2D(x*0.003, -z*0.003) * (this.currentLevel===2 ? 40 : 15);
-        if(this.currentLevel === 2 && x > 200) h += 20;
+        if(this.currentLevel === 2) h += this.simplex.noise2D(x*0.01, z*0.01) * 5;
+        
         return Math.max(0, h);
     },
 
-    // Lap Counting Check (Physics penalty removed, but we still need this for laps)
     checkLapLogic() {
         if(!this.myCar || !this.racing) return;
         const cps = this.levelData.checkpoints;
         const nextIdx = (this.myCar.checkpoint + 1) % cps.length;
-        // Increased distance check to 60 units so you don't miss checkpoints easily
         if(this.myCar.pos.distanceTo(cps[nextIdx]) < 60) {
             this.myCar.checkpoint = nextIdx;
             if(nextIdx === 0) {
@@ -399,11 +407,27 @@ const Game = {
     spawnMe(carId) {
         if(this.myCar) this.scene.remove(this.myCar.mesh);
         const colors = [0x3366ff, 0xff3333, 0xffaa00, 0xcc00ff];
-        // Increased stats slightly
-        const stats = [{accel:0.025, turn:0.06}, {accel:0.035, turn:0.065}, {accel:0.045, turn:0.06}, {accel:0.07, turn:0.08}];
+        
+        // SPEED TUNING:
+        // Drag is 0.985. Terminal velocity is reached when accel = speed * (1-drag).
+        // MaxSpeed = Accel / 0.015.
+        // 117 kmh = ~0.97 units -> Accel: 0.0146
+        // 170 kmh = ~1.41 units -> Accel: 0.0212
+        // 240 kmh = ~2.00 units -> Accel: 0.0300
+        // 320 kmh = ~2.66 units -> Accel: 0.0400
+        const stats = [
+            {accel:0.015, turn:0.06},  // ~120 km/h (Rookie)
+            {accel:0.022, turn:0.065}, // ~170 km/h (Street)
+            {accel:0.031, turn:0.07},  // ~245 km/h (Rally)
+            {accel:0.042, turn:0.08}   // ~330 km/h (F1)
+        ];
+        
         this.myCar = new CarPhysics(stats[carId], colors[carId]);
         this.scene.add(this.myCar.mesh);
-        this.loadLevel(this.currentLevel);
+        
+        // Reset position to track
+        this.myCar.pos.copy(this.levelData.spawn);
+        this.myCar.pos.y = 12;
     },
 
     connect() {
@@ -566,10 +590,12 @@ const Game = {
         requestAnimationFrame(this.animate);
         
         if(this.myCar) {
+            // Infinite Terrain Update
+            this.updateChunks(this.myCar.pos);
+
             const hFn = (x,z) => this.getTerrainHeight(x,z);
-            // No longer checking "onRoad" for physics
             this.myCar.update(this.input, 0.016, hFn);
-            this.checkLapLogic(); // Still check laps
+            this.checkLapLogic(); 
             this.updateCam(); 
             this.audio.update(Math.abs(this.myCar.speed) / 2.5);
             this.drawMinimap();
@@ -580,8 +606,12 @@ const Game = {
                 x: this.myCar.pos.x, y: this.myCar.pos.y, z: this.myCar.pos.z,
                 qx: this.myCar.quat.x, qy: this.myCar.quat.y, qz: this.myCar.quat.z, qw: this.myCar.quat.w
             });
+            
+            // Move sun with player so shadows don't disappear
+            this.sun.position.set(this.myCar.pos.x + 100, 200, this.myCar.pos.z + 50);
+            this.sun.target.position.copy(this.myCar.pos);
+            this.sun.target.updateMatrixWorld();
         } else {
-            // Rotating cam while waiting
             if(this.camera && this.levelData) {
                 const time = Date.now() * 0.0005;
                 this.camera.position.x = Math.sin(time) * 200;
