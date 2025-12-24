@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TURBO DRIFT: ULTIMATE</title>
+    <title>TURBO DRIFT: REAL SOUNDS</title>
     <style>
         :root { --neon: #00f3ff; --danger: #ff0055; --bg: #0a0a12; }
         body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; user-select: none; color: white; }
@@ -55,7 +55,7 @@
 
         <div id="race-panel">
             <button id="join-btn" onclick="Game.joinRace()">JOIN RACE (2 Players Req)</button>
-            <div id="lap-counter">LAP <span id="lap-val">1</span> / 3</div>
+            <div id="lap-counter">LAP <span id="lap-val">1</span> / 5</div>
         </div>
 
         <div id="msg-area"></div>
@@ -82,70 +82,114 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
 
     <script>
-        // --- SOUND ENGINE ---
+        // --- REALISTIC ENGINE SOUND SYSTEM ---
         class AudioController {
             constructor() {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-                this.engine = null;
-                this.drift = null;
                 this.initialized = false;
+                
+                // Nodes
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.3;
+                this.masterGain.connect(this.ctx.destination);
+
+                this.sources = [];
             }
 
             init() {
                 if(this.initialized) return;
                 this.ctx.resume();
 
-                // 1. Engine Tone (Sawtooth + Lowpass)
-                this.engine = this.ctx.createOscillator();
-                this.engine.type = 'sawtooth';
-                this.engine.frequency.value = 50;
-                
-                this.engineGain = this.ctx.createGain();
-                this.engineGain.gain.value = 0.1;
-
-                this.engine.connect(this.engineGain);
-                this.engineGain.connect(this.ctx.destination);
-                this.engine.start();
-
-                // 2. Drift Noise (White Noise buffer)
+                // 1. ENGINE RUMBLE (Brown Noise)
                 const bufferSize = this.ctx.sampleRate * 2;
                 const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
                 const data = buffer.getChannelData(0);
-                for(let i=0; i<bufferSize; i++) data[i] = Math.random() * 2 - 1;
+                for(let i=0; i<bufferSize; i++) {
+                    // Brown noise approximation
+                    const white = Math.random() * 2 - 1;
+                    data[i] = (lastOut + (0.02 * white)) / 1.02;
+                    lastOut = data[i];
+                    data[i] *= 3.5; 
+                }
+                var lastOut = 0;
 
-                this.drift = this.ctx.createBufferSource();
-                this.drift.buffer = buffer;
-                this.drift.loop = true;
+                this.rumbleNode = this.ctx.createBufferSource();
+                this.rumbleNode.buffer = buffer;
+                this.rumbleNode.loop = true;
                 
-                this.driftGain = this.ctx.createGain();
-                this.driftGain.gain.value = 0; // Silent by default
+                // Filter for Rumble
+                this.rumbleFilter = this.ctx.createBiquadFilter();
+                this.rumbleFilter.type = 'lowpass';
+                this.rumbleFilter.frequency.value = 400;
 
-                // Filter to make it sound like tires
-                const driftFilter = this.ctx.createBiquadFilter();
-                driftFilter.type = 'bandpass';
-                driftFilter.frequency.value = 800;
+                this.rumbleNode.connect(this.rumbleFilter);
+                this.rumbleFilter.connect(this.masterGain);
+                this.rumbleNode.start();
 
-                this.drift.connect(driftFilter);
-                driftFilter.connect(this.driftGain);
-                this.driftGain.connect(this.ctx.destination);
-                this.drift.start();
+                // 2. ENGINE TONE (Oscillators for "Whine")
+                // Oscillator 1 (Base)
+                this.osc1 = this.ctx.createOscillator();
+                this.osc1.type = 'sawtooth';
+                this.osc1.frequency.value = 100;
+                
+                // Oscillator 2 (Sub-Harmonic)
+                this.osc2 = this.ctx.createOscillator();
+                this.osc2.type = 'square';
+                this.osc2.frequency.value = 50;
+
+                // Distortion Curve (Make it gritty)
+                const dist = this.ctx.createWaveShaper();
+                dist.curve = this.makeDistortionCurve(400);
+                dist.oversample = '4x';
+
+                // Mix oscillators
+                const oscGain = this.ctx.createGain();
+                oscGain.gain.value = 0.15;
+
+                this.osc1.connect(oscGain);
+                this.osc2.connect(oscGain);
+                oscGain.connect(dist);
+                dist.connect(this.masterGain);
+
+                this.osc1.start();
+                this.osc2.start();
 
                 this.initialized = true;
             }
 
-            update(speed, isDrifting) {
+            makeDistortionCurve(amount) {
+                const k = typeof amount === 'number' ? amount : 50;
+                const n_samples = 44100;
+                const curve = new Float32Array(n_samples);
+                const deg = Math.PI / 180;
+                for (let i = 0; i < n_samples; ++i) {
+                    const x = i * 2 / n_samples - 1;
+                    curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+                }
+                return curve;
+            }
+
+            update(speed) {
                 if(!this.initialized) return;
                 
-                // Engine Pitch
-                const baseFreq = 60 + (speed * 300); // 60Hz idle -> 360Hz redline
-                this.engine.frequency.setTargetAtTime(baseFreq, this.ctx.currentTime, 0.1);
+                // Speed = 0.0 to 1.0 (approx)
+                const rpm = 800 + (speed * 5000); // 800 RPM idle, 6000 RPM redline
                 
-                // Drift Volume
-                const targetVol = isDrifting ? 0.3 : 0.0;
-                this.driftGain.gain.setTargetAtTime(targetVol, this.ctx.currentTime, 0.1);
+                // Pitch shifting
+                this.osc1.frequency.setTargetAtTime(rpm / 60 * 2, this.ctx.currentTime, 0.1); // Hz
+                this.osc2.frequency.setTargetAtTime(rpm / 60, this.ctx.currentTime, 0.1); // Sub octave
+
+                // Rumble Pitch (playback rate)
+                const rate = 0.5 + (speed * 1.5);
+                this.rumbleNode.playbackRate.setTargetAtTime(rate, this.ctx.currentTime, 0.1);
+                
+                // Filter opening (simulating throttle)
+                const cutoff = 400 + (speed * 2000);
+                this.rumbleFilter.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 0.1);
             }
         }
 
+        // --- CAR PHYSICS ---
         class Car {
             constructor(stats, color) {
                 this.stats = stats;
@@ -155,7 +199,7 @@
                 this.quat = new THREE.Quaternion();
                 this.speed = 0; 
                 this.rotVel = 0;
-                this.checkpoint = 0; // 0=Start, 1=Top, 2=Right, 3=Bottom
+                this.checkpoint = 0; 
                 this.lap = 1;
                 this.lastSafePos = new THREE.Vector3(130, 2, 0);
                 this.drifting = false;
@@ -191,21 +235,24 @@
                 this.speed += accel;
                 this.speed *= 0.98; 
 
+                // SHARP TURNING
                 if(Math.abs(this.speed) > 0.1) {
                     const dir = this.speed > 0 ? 1 : -1;
-                    const turnForce = this.stats.turn * 1.5; 
+                    const turnForce = this.stats.turn * 3.0; // Sharp multiplier
                     if(inputs.ArrowLeft) this.rotVel += turnForce * dt * dir;
                     if(inputs.ArrowRight) this.rotVel -= turnForce * dt * dir;
                 }
-                this.rotVel *= 0.9;
+                this.rotVel *= 0.8; // Fast damping for snappy controls
                 
                 const q = new THREE.Quaternion();
                 q.setFromAxisAngle(new THREE.Vector3(0,1,0), this.rotVel);
                 this.quat.multiply(q).normalize();
 
                 const fwd = new THREE.Vector3(0,0,1).applyQuaternion(this.quat);
-                const grip = inputs.Shift ? 0.05 : 0.3;
+                
+                // DRIFTING
                 this.drifting = inputs.Shift && Math.abs(this.speed) > 0.5;
+                const grip = this.drifting ? 0.02 : 0.8; // 0.8 = High grip, 0.02 = Ice
 
                 const targetVel = fwd.clone().multiplyScalar(this.speed);
                 this.velocity.lerp(targetVel, grip);
@@ -213,6 +260,7 @@
                 this.pos.add(this.velocity);
                 this.pos.y = h + 0.5;
 
+                // BARRIERS
                 const dist = Math.sqrt(this.pos.x*this.pos.x + this.pos.z*this.pos.z);
                 const inRing = (dist > 105 && dist < 155);
                 const inLobby = (Math.abs(this.pos.x - 130) < 20 && Math.abs(this.pos.z) < 20);
@@ -270,7 +318,6 @@
                     this.renderer.setSize(window.innerWidth, window.innerHeight);
                 });
                 
-                // Init Audio on click
                 window.addEventListener('click', () => this.audio.init(), {once:true});
             },
 
@@ -356,6 +403,10 @@
                         document.getElementById('lap-counter').style.display = 'none';
                         document.getElementById('respawn-btn').style.display = 'none';
                         document.getElementById('lap-val').innerText = '1';
+                        if(this.myCar) {
+                            this.myCar.lap = 1;
+                            this.myCar.checkpoint = 0;
+                        }
                     }
                 });
 
@@ -431,23 +482,24 @@
                 const pos = this.myCar.pos;
                 const angle = Math.atan2(pos.z, pos.x);
                 let region = -1;
-                // Regions: 0 (Start/Left), 1 (Top), 2 (Right), 3 (Bottom)
+                // 0=Start, 1=Top, 2=Right, 3=Bottom
                 if(Math.abs(angle - Math.PI) < 0.6 || Math.abs(angle + Math.PI) < 0.6) region = 0;
                 else if(Math.abs(angle + Math.PI/2) < 0.6) region = 1;
                 else if(Math.abs(angle) < 0.6) region = 2;
                 else if(Math.abs(angle - Math.PI/2) < 0.6) region = 3;
 
                 const cp = this.myCar.checkpoint;
-                // Strict sequence check: 0->1->2->3->0
+                // STRICT CHECKPOINT ORDER 0->1->2->3->0
                 if(region === (cp + 1) % 4) {
                     this.myCar.checkpoint = region;
                     this.myCar.lastSafePos.copy(this.myCar.pos);
-                    // Lap Complete logic
+                    
+                    // Lap Complete Logic
                     if(region === 0 && cp === 3) {
                         this.myCar.lap++;
-                        document.getElementById('lap-val').innerText = Math.min(this.myCar.lap, 3);
+                        document.getElementById('lap-val').innerText = Math.min(this.myCar.lap, 5);
                         this.socket.emit('lapComplete', this.myCar.lap);
-                        if(this.myCar.lap > 3) { this.racing = false; this.notify("RACE FINISHED!"); }
+                        if(this.myCar.lap > 5) { this.racing = false; this.notify("RACE FINISHED!"); }
                     }
                 }
             },
@@ -471,7 +523,6 @@
                     this.checkLaps();
                     this.updateCam();
                     
-                    // Audio
                     this.audio.update(Math.abs(this.myCar.speed) / 2.0, this.myCar.drifting);
 
                     document.getElementById('speed').innerText = Math.floor(Math.abs(this.myCar.speed) * 120);
