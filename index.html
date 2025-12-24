@@ -100,13 +100,12 @@
     <script>
         /**
          * 🎵 AUDIO ENGINE
-         * Synthesizes engine sounds using Web Audio API
          */
         class SoundEngine {
             constructor() {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
                 this.master = this.ctx.createGain();
-                this.master.gain.value = 0.1; // Volume
+                this.master.gain.value = 0.1; 
                 this.master.connect(this.ctx.destination);
                 this.osc = null;
                 this.mod = null;
@@ -116,23 +115,16 @@
             start() {
                 if(this.isRunning) return;
                 this.ctx.resume();
-                
-                // Main Engine Tone (Sawtooth for grit)
                 this.osc = this.ctx.createOscillator();
                 this.osc.type = 'sawtooth';
                 this.osc.frequency.value = 60;
-
-                // Modulation (Rumble)
                 this.mod = this.ctx.createOscillator();
                 this.mod.type = 'sine';
                 this.mod.frequency.value = 30;
-                
                 const modGain = this.ctx.createGain();
                 modGain.gain.value = 50;
-
                 this.mod.connect(modGain);
                 modGain.connect(this.osc.frequency);
-                
                 this.osc.connect(this.master);
                 this.osc.start();
                 this.mod.start();
@@ -141,11 +133,8 @@
 
             update(speedRatio) {
                 if(!this.isRunning) return;
-                // Pitch moves from 60Hz to 300Hz based on speed
                 const targetFreq = 60 + (speedRatio * 250);
                 this.osc.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.1);
-                
-                // Rumble speed increases
                 this.mod.frequency.value = 20 + (speedRatio * 50);
             }
         }
@@ -164,12 +153,7 @@
             emit(pos, count = 1) {
                 for(let i=0; i<count; i++) {
                     const mesh = new THREE.Mesh(this.geo, this.mat);
-                    // Random scatter
-                    mesh.position.copy(pos).add(new THREE.Vector3(
-                        (Math.random()-0.5)*1.5,
-                        Math.random()*0.5,
-                        (Math.random()-0.5)*1.5
-                    ));
+                    mesh.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*1.5, Math.random()*0.5, (Math.random()-0.5)*1.5));
                     mesh.rotation.set(Math.random(), Math.random(), Math.random());
                     this.scene.add(mesh);
                     this.particles.push({ mesh, life: 1.0, vel: new THREE.Vector3(0, 0.1, 0) });
@@ -184,7 +168,6 @@
                     p.mesh.rotation.x += 0.1;
                     p.mesh.scale.multiplyScalar(0.95);
                     p.mesh.material.opacity = p.life;
-                    
                     if (p.life <= 0) {
                         this.scene.remove(p.mesh);
                         this.particles.splice(i, 1);
@@ -201,18 +184,12 @@
             scene: null, camera: null, renderer: null,
             audio: new SoundEngine(),
             particles: null,
-            
-            // State
             myId: null,
             players: {},
             myCar: { mesh: null, speed: 0, steer: 0, type: 0 },
             economy: { money: 0, owned: [] },
             shopData: {},
-            
-            // Inputs
             keys: { ArrowUp:0, ArrowDown:0, ArrowLeft:0, ArrowRight:0, " ":0 },
-            
-            // Config
             config: { maxSpeed: 1.2, accel: 0.02, turn: 0.04 },
 
             init() {
@@ -222,6 +199,12 @@
                 this.scene.fog = new THREE.Fog(0x0a0a12, 50, 250);
 
                 this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+                
+                // --- FIX: SET CAMERA POSITION SO IT ISN'T BLACK ---
+                this.camera.position.set(110, 40, 60);
+                this.camera.lookAt(110, 0, 0);
+                // -------------------------------------------------
+
                 this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
                 this.renderer.shadowMap.enabled = true;
@@ -250,7 +233,6 @@
                 this.animate = this.animate.bind(this);
                 requestAnimationFrame(this.animate);
                 
-                // Start Audio on first click
                 window.addEventListener('click', () => this.audio.start(), {once:true});
                 window.addEventListener('resize', () => {
                     this.camera.aspect = window.innerWidth/window.innerHeight;
@@ -260,28 +242,21 @@
             },
 
             buildWorld() {
-                // Ground Grid
-                const texLoader = new THREE.TextureLoader();
-                // Procedural Terrain Mesh
+                // Procedural Terrain
                 const geo = new THREE.PlaneGeometry(800, 800, 100, 100);
                 const pos = geo.attributes.position;
-                
-                // Custom pseudo-noise function to avoid external dependency
                 const noise = (x, z) => Math.sin(x*0.02)*5 + Math.cos(z*0.015)*5 + Math.sin(x*0.05 + z*0.05)*2;
 
                 for(let i=0; i<pos.count; i++) {
                     const x = pos.getX(i);
-                    const y = pos.getY(i); // Plane is XY initially
+                    const y = pos.getY(i); 
                     const h = noise(x, -y); 
-                    pos.setZ(i, h > 0 ? h : 0); // clamp water
+                    pos.setZ(i, h > 0 ? h : 0); 
                 }
                 geo.computeVertexNormals();
 
                 const mat = new THREE.MeshStandardMaterial({ 
-                    color: 0x1a1a24, 
-                    roughness: 0.8,
-                    metalness: 0.2,
-                    wireframe: false
+                    color: 0x1a1a24, roughness: 0.8, metalness: 0.2
                 });
                 
                 const terrain = new THREE.Mesh(geo, mat);
@@ -289,12 +264,10 @@
                 terrain.receiveShadow = true;
                 this.scene.add(terrain);
 
-                // Grid Helper for "Tron" look
                 const grid = new THREE.GridHelper(800, 100, 0x00f2ff, 0x111111);
                 grid.position.y = 0.1;
                 this.scene.add(grid);
 
-                // Race Track (Glowing Ring)
                 const trackGeo = new THREE.RingGeometry(95, 125, 128);
                 const trackMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.1 });
                 const track = new THREE.Mesh(trackGeo, trackMat);
@@ -303,7 +276,6 @@
                 track.receiveShadow = true;
                 this.scene.add(track);
 
-                // Neon Borders
                 const borderGeo = new THREE.TorusGeometry(125, 0.5, 16, 128);
                 const borderMat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
                 const border = new THREE.Mesh(borderGeo, borderMat);
@@ -317,14 +289,10 @@
                 this.scene.add(innerBorder);
             },
 
-            // --- CAR CREATION (High Detail) ---
             createCar(type, color) {
                 const group = new THREE.Group();
-                
-                // Color preset based on upgrade level
                 const bodyColor = [0x333333, 0x00f2ff, 0xff0055, 0xffaa00][type] || color;
                 
-                // 1. Body
                 const chassisGeo = new THREE.BoxGeometry(2.2, 0.6, 4.4);
                 const chassisMat = new THREE.MeshStandardMaterial({ color: bodyColor, metalness: 0.7, roughness: 0.1 });
                 const chassis = new THREE.Mesh(chassisGeo, chassisMat);
@@ -332,22 +300,16 @@
                 chassis.castShadow = true;
                 group.add(chassis);
 
-                // 2. Cabin
-                const cabin = new THREE.Mesh(
-                    new THREE.BoxGeometry(1.8, 0.5, 2.0),
-                    new THREE.MeshStandardMaterial({ color: 0x000000, metalness: 1.0, roughness: 0.0 })
-                );
+                const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.5, 2.0), new THREE.MeshStandardMaterial({ color: 0x000000, metalness: 1.0, roughness: 0.0 }));
                 cabin.position.set(0, 1.25, -0.2);
                 group.add(cabin);
 
-                // 3. Spoiler (if upgraded)
                 if(type > 0) {
                     const wing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.6), chassisMat);
                     wing.position.set(0, 1.4, 2.0);
                     group.add(wing);
                 }
 
-                // 4. Wheels
                 const wGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 16);
                 const wMat = new THREE.MeshStandardMaterial({ color: 0x111 });
                 const pos = [{x:1.1, z:1.2}, {x:-1.1, z:1.2}, {x:1.1, z:-1.4}, {x:-1.1, z:-1.4}];
@@ -359,7 +321,6 @@
                     group.add(w);
                 });
 
-                // 5. Glow (Neon Underglow)
                 const light = new THREE.PointLight(bodyColor, 1, 10);
                 light.position.set(0, 0.5, 0);
                 group.add(light);
@@ -369,18 +330,14 @@
 
             spawnMe(type) {
                 if(this.myCar.mesh) this.scene.remove(this.myCar.mesh);
-                
                 const mesh = this.createCar(type, 0xffffff);
-                mesh.position.set(110, 0.5, 0); // Start Line
+                mesh.position.set(110, 0.5, 0); 
                 this.scene.add(mesh);
-                
                 this.myCar.mesh = mesh;
                 this.myCar.type = type;
-                
-                // Set stats based on car type
                 const stats = this.shopData[type];
                 this.config.maxSpeed = stats.speed;
-                this.config.turn = 0.04 * stats.grip; // better grip = tighter turn? No, simpler: better grip = less drift
+                this.config.turn = 0.04 * stats.grip; 
             },
 
             spawnOther(p) {
@@ -391,45 +348,29 @@
                 this.players[p.id] = { mesh: mesh, target: p };
             },
 
-            // --- NETWORKING ---
             connect() {
                 this.socket = io();
-                
                 this.socket.on('welcome', (data) => {
                     this.myId = data.id;
                     this.shopData = data.shop;
                     this.economy.money = data.list[this.myId].money;
                     this.economy.owned = data.list[this.myId].owned;
                     this.updateUI();
-                    
                     this.spawnMe(data.list[this.myId].carId);
-                    
-                    // Spawn existing
-                    Object.values(data.list).forEach(p => {
-                        if(p.id !== this.myId) this.spawnOther(p);
-                    });
+                    Object.values(data.list).forEach(p => { if(p.id !== this.myId) this.spawnOther(p); });
                 });
-
                 this.socket.on('playerJoin', p => this.spawnOther(p));
-                
                 this.socket.on('playerUpdate', p => {
                     if(this.players[p.id]) {
                         const car = this.players[p.id].mesh;
-                        // Simple Lerp
                         car.position.lerp(new THREE.Vector3(p.x, p.y, p.z), 0.3);
                         car.quaternion.slerp(new THREE.Quaternion(p.qx, p.qy, p.qz, p.qw), 0.3);
-                        // Particles if speeding
                         if(Math.abs(p.s) > 0.5) this.particles.emit(car.position);
                     }
                 });
-
                 this.socket.on('playerLeave', id => {
-                    if(this.players[id]) {
-                        this.scene.remove(this.players[id].mesh);
-                        delete this.players[id];
-                    }
+                    if(this.players[id]) { this.scene.remove(this.players[id].mesh); delete this.players[id]; }
                 });
-
                 this.socket.on('economyUpdate', data => {
                     this.economy.money = data.money;
                     this.economy.owned = data.owned;
@@ -437,25 +378,11 @@
                     this.updateUI();
                     this.showNotif("TRANSACTION SUCCESSFUL");
                 });
-
-                this.socket.on('raceStart', () => {
-                    this.showNotif("🏁 RACE STARTED! GO!");
-                    document.getElementById('race-ui').style.opacity = 0;
-                });
-                
-                this.socket.on('raceStatus', s => {
-                    document.getElementById('race-ui').style.opacity = 1;
-                    document.getElementById('race-text').innerText = `RACERS READY: ${s.count}`;
-                });
-
-                this.socket.on('raceOver', d => {
-                    this.showNotif(`🏆 WINNER: ${d.winner}`);
-                    document.getElementById('race-ui').style.opacity = 1;
-                    document.getElementById('race-text').innerText = "RACE FINISHED";
-                });
+                this.socket.on('raceStart', () => { this.showNotif("🏁 RACE STARTED! GO!"); document.getElementById('race-ui').style.opacity = 0; });
+                this.socket.on('raceStatus', s => { document.getElementById('race-ui').style.opacity = 1; document.getElementById('race-text').innerText = `RACERS READY: ${s.count}`; });
+                this.socket.on('raceOver', d => { this.showNotif(`🏆 WINNER: ${d.winner}`); document.getElementById('race-ui').style.opacity = 1; document.getElementById('race-text').innerText = "RACE FINISHED"; });
             },
 
-            // --- INPUT & PHYSICS ---
             setupInputs() {
                 document.addEventListener('keydown', e => { if(this.keys[e.key] !== undefined) this.keys[e.key] = 1; });
                 document.addEventListener('keyup', e => { if(this.keys[e.key] !== undefined) this.keys[e.key] = 0; });
@@ -463,70 +390,36 @@
 
             updatePhysics() {
                 if(!this.myCar.mesh) return;
-
-                const dt = 0.016; // fixed step approximation
                 const car = this.myCar;
-
-                // 1. Acceleration
                 if(this.keys.ArrowUp) car.speed += this.config.accel;
                 if(this.keys.ArrowDown) car.speed -= this.config.accel;
-                
-                // Friction
                 car.speed *= 0.98;
-                
-                // 2. Steering (Smooth)
                 let targetSteer = 0;
                 if(Math.abs(car.speed) > 0.1) {
                     const dir = car.speed > 0 ? 1 : -1;
                     if(this.keys.ArrowLeft) targetSteer = this.config.turn * dir;
                     if(this.keys.ArrowRight) targetSteer = -this.config.turn * dir;
                 }
-                
-                // Lerp steering (Inertia)
                 car.steer += (targetSteer - car.steer) * 0.1;
-
-                // 3. Rotation (Quaternion)
                 const mesh = car.mesh;
                 mesh.rotateY(car.steer * Math.abs(car.speed) * 2.0);
-
-                // 4. Position
                 const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(mesh.quaternion);
-                // Drift factor: if Space is held, we slide more
-                const slide = this.keys[" "] ? 0.99 : 0.0;
-                
                 mesh.position.add(forward.multiplyScalar(car.speed));
-
-                // 5. Ground Clamping (Pseudo Terrain)
                 const h = Math.sin(mesh.position.x*0.02)*5 + Math.cos(mesh.position.z*0.015)*5 + Math.sin(mesh.position.x*0.05 + mesh.position.z*0.05)*2;
                 const targetY = h > 0 ? h + 0.5 : 0.5;
-                mesh.position.y += (targetY - mesh.position.y) * 0.2; // Smooth suspension
-
-                // 6. Camera Follow
+                mesh.position.y += (targetY - mesh.position.y) * 0.2; 
                 const camOffset = new THREE.Vector3(0, 10, -20).applyQuaternion(mesh.quaternion);
                 const camPos = mesh.position.clone().add(camOffset);
                 this.camera.position.lerp(camPos, 0.1);
                 this.camera.lookAt(mesh.position);
-
-                // 7. Audio Update
                 this.audio.update(Math.abs(car.speed) / this.config.maxSpeed);
-
-                // 8. Particles
-                if((this.keys[" "] && Math.abs(car.speed) > 0.5) || Math.abs(car.speed) > 0.8) {
-                    this.particles.emit(mesh.position);
-                }
-
-                // 9. Network Send
+                if((this.keys[" "] && Math.abs(car.speed) > 0.5) || Math.abs(car.speed) > 0.8) this.particles.emit(mesh.position);
                 this.socket.emit('move', {
                     x: mesh.position.x, y: mesh.position.y, z: mesh.position.z,
                     qx: mesh.quaternion.x, qy: mesh.quaternion.y, qz: mesh.quaternion.z, qw: mesh.quaternion.w,
-                    s: car.speed,
-                    st: car.steer
+                    s: car.speed, st: car.steer
                 });
-
-                // 10. Lap Logic
                 this.checkLap(mesh.position);
-
-                // 11. UI Update
                 const kmh = Math.floor(Math.abs(car.speed) * 200);
                 document.getElementById('speed-num').innerText = kmh;
                 document.getElementById('rpm-fill').style.width = Math.min((kmh / 240)*100, 100) + "%";
@@ -534,24 +427,13 @@
             },
 
             checkLap(pos) {
-                // Simple polar coordinate check
                 const angle = Math.atan2(pos.z, pos.x);
-                // Define 4 sectors
-                let sector = 0;
-                if(angle >= 0 && angle < 1.57) sector = 1;
-                else if(angle >= 1.57) sector = 2;
-                else if(angle < -1.57) sector = 3;
-                else sector = 4;
-                
-                // Logic needs server validation ideally, but sending lap finish here
-                // ... (Simplified for length) ...
-                if(sector === 1 && Math.abs(pos.x - 110) < 10 && Math.abs(pos.z) < 20) {
-                     // Finish Line Check logic would go here
-                     // For now, just a button to join race handles logic
+                // Logic simplified for length - race detection happens here
+                if(Math.abs(pos.x - 110) < 10 && Math.abs(pos.z) < 20) {
+                     // Checkpoint
                 }
             },
 
-            // --- UI & SHOP ---
             toggleShop() {
                 const modal = document.getElementById('shop-modal');
                 const grid = document.getElementById('shop-grid');
@@ -560,61 +442,30 @@
                 } else {
                     modal.style.display = 'flex';
                     grid.innerHTML = '';
-                    // Generate Cards
                     Object.keys(this.shopData).forEach(id => {
                         const item = this.shopData[id];
                         const owned = this.economy.owned.includes(parseInt(id));
                         const equipped = this.myCar.type == id;
-                        
                         let action = `Game.socket.emit('buy', ${id})`;
                         let btnText = `BUY $${item.price}`;
                         let btnStyle = `border:1px solid #333; background:transparent; color:white;`;
-                        
-                        if(owned) {
-                            action = `Game.socket.emit('equip', ${id})`;
-                            btnText = "EQUIP";
-                            btnStyle = "background:#00f2ff; color:black; font-weight:bold;";
-                        }
-                        if(equipped) {
-                            btnText = "DRIVING";
-                            btnStyle = "background:#333; color:#555; cursor:default;";
-                        }
-
+                        if(owned) { action = `Game.socket.emit('equip', ${id})`; btnText = "EQUIP"; btnStyle = "background:#00f2ff; color:black; font-weight:bold;"; }
+                        if(equipped) { btnText = "DRIVING"; btnStyle = "background:#333; color:#555; cursor:default;"; }
                         const div = document.createElement('div');
                         div.className = 'car-card';
-                        div.innerHTML = `
-                            <div class="car-name">${item.name}</div>
-                            <div class="car-price">${owned ? "OWNED" : "$"+item.price}</div>
-                            <div style="text-align:left; font-size:12px; color:#aaa;">
-                                SPEED <div class="stat-bar"><div class="stat-fill" style="width:${(item.speed/2.5)*100}%"></div></div>
-                                GRIP <div class="stat-bar"><div class="stat-fill" style="width:${(item.grip)*100}%"></div></div>
-                            </div>
-                            <button onclick="${action}" style="margin-top:15px; padding:10px; width:100%; border-radius:5px; cursor:pointer; ${btnStyle}">${btnText}</button>
-                        `;
+                        div.innerHTML = `<div class="car-name">${item.name}</div><div class="car-price">${owned ? "OWNED" : "$"+item.price}</div><div style="text-align:left; font-size:12px; color:#aaa;">SPEED <div class="stat-bar"><div class="stat-fill" style="width:${(item.speed/2.5)*100}%"></div></div>GRIP <div class="stat-bar"><div class="stat-fill" style="width:${(item.grip)*100}%"></div></div></div><button onclick="${action}" style="margin-top:15px; padding:10px; width:100%; border-radius:5px; cursor:pointer; ${btnStyle}">${btnText}</button>`;
                         grid.appendChild(div);
                     });
                 }
             },
 
-            updateUI() {
-                document.getElementById('money-val').innerText = this.economy.money;
-            },
+            updateUI() { document.getElementById('money-val').innerText = this.economy.money; },
+            showNotif(msg) { const d = document.createElement('div'); d.className = 'notif'; d.innerText = msg; document.getElementById('notif-area').appendChild(d); setTimeout(() => d.remove(), 3500); },
+            joinRace() { this.socket.emit('joinRace'); },
+            animate() { requestAnimationFrame(this.animate); this.updatePhysics(); this.particles.update(); this.renderer.render(this.scene, this.camera); }
+        };
 
-            showNotif(msg) {
-                const d = document.createElement('div');
-                d.className = 'notif';
-                d.innerText = msg;
-                document.getElementById('notif-area').appendChild(d);
-                setTimeout(() => d.remove(), 3500);
-            },
-
-            joinRace() {
-                this.socket.emit('joinRace');
-            },
-
-            animate() {
-                requestAnimationFrame(this.animate);
-                this.updatePhysics();
-                this.particles.update();
-                this.renderer.render(this.scene, this.camera);
-            }
+        Game.init();
+    </script>
+</body>
+</html>
