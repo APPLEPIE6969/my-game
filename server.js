@@ -2,8 +2,10 @@ const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
+const path = require('path');
 
-app.use(express.static(__dirname));
+// This line tells the server to look in the 'public' folder for html and js files
+app.use(express.static(path.join(__dirname, 'public')));
 
 let players = {};
 let race = { status: 'idle', laps: 3, entrants: [], finished: [] };
@@ -20,14 +22,15 @@ io.on('connection', (socket) => {
 
     players[socket.id] = {
         id: socket.id,
-        x: 0, y: 0, z: 0,
+        // FIX: Spawning at Y=10 to start in the air/on track
+        x: 0, y: 10, z: 0, 
         qx: 0, qy: 0, qz: 0, qw: 1,
         speed: 0,
         money: 500,
         carId: 0,
         owned: [0],
         lap: 0,
-        cpIndex: 0, // Checkpoint Index
+        cpIndex: 0,
         finished: false,
         name: "Racer " + socket.id.substr(0,4),
         color: Math.random() * 0xffffff
@@ -63,7 +66,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- RACE LOGIC ---
     socket.on('joinRace', () => {
         if(race.status !== 'idle') return;
         if(!race.entrants.includes(socket.id)) {
@@ -122,4 +124,4 @@ function endRace() {
 }
 
 const port = process.env.PORT || 3000;
-http.listen(port, () => console.log(`Server running on ${port}`));
+http.listen(port, () => console.log(`Server running on port ${port}`));
