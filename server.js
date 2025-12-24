@@ -5,17 +5,9 @@ const io = require('socket.io')(http);
 
 app.use(express.static(__dirname));
 
-// --- GAME STATE ---
 let players = {};
-let race = {
-    status: 'idle', // idle, countdown, racing
-    laps: 5,
-    startTime: 0,
-    entrants: [],
-    finished: []
-};
+let race = { status: 'idle', laps: 5, startTime: 0, entrants: [], finished: [] };
 
-// --- SHOP DATA ---
 const CATALOG = {
     0: { name: "Rookie Kart", price: 0, speed: 1.0, grip: 0.94 },
     1: { name: "Street Tuner", price: 500, speed: 1.3, grip: 0.91 },
@@ -38,17 +30,16 @@ io.on('connection', (socket) => {
         carId: 0,
         owned: [0],
         lap: 0,
-        checkpoint: 0,
         finished: false
     };
 
     socket.emit('welcome', { id: socket.id, list: players, shop: CATALOG, race: race });
     socket.broadcast.emit('playerJoin', players[socket.id]);
+    io.emit('countUpdate', Object.keys(players).length);
 
     socket.on('move', (data) => {
         if(players[socket.id]) {
-            const p = players[socket.id];
-            Object.assign(p, data); // Update position/rot
+            Object.assign(players[socket.id], data);
             socket.broadcast.emit('playerUpdate', { id: socket.id, ...data });
         }
     });
@@ -72,19 +63,13 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- RACE LOGIC ---
     socket.on('joinRace', () => {
         if(race.status !== 'idle') return;
         if(!race.entrants.includes(socket.id)) {
             race.entrants.push(socket.id);
             io.emit('raceStatus', { count: race.entrants.length, status: 'waiting' });
-            
-            // REQUIRE 2 PLAYERS
-            if(race.entrants.length >= 2) {
-                startRaceSequence();
-            } else {
-                io.emit('serverMsg', "Waiting for 1 more player...");
-            }
+            if(race.entrants.length >= 2) startRaceSequence();
+            else io.emit('serverMsg', "Waiting for 1 more player...");
         }
     });
 
@@ -93,24 +78,13 @@ io.on('connection', (socket) => {
         if(p && race.status === 'racing' && !p.finished) {
             p.lap = lap;
             if(p.lap > race.laps) {
-                // FINISHED
                 p.finished = true;
                 race.finished.push(socket.id);
-                
-                // PRIZES
-                let prize = 0;
-                let rank = race.finished.length;
-                if(rank === 1) prize = 300;
-                else if(rank === 2) prize = 150;
-                else prize = 50;
-
+                let prize = race.finished.length === 1 ? 300 : (race.finished.length === 2 ? 150 : 50);
                 p.money += prize;
                 io.to(socket.id).emit('economyUpdate', { money: p.money, owned: p.owned, car: p.carId });
-                io.emit('serverMsg', `${p.name} finished #${rank} and won $${prize}!`);
-                
-                if(race.finished.length === race.entrants.length) {
-                    endRace();
-                }
+                io.emit('serverMsg', `${p.name} finished #${race.finished.length} and won $${prize}!`);
+                if(race.finished.length === race.entrants.length) endRace();
             }
         }
     });
@@ -119,9 +93,8 @@ io.on('connection', (socket) => {
         delete players[socket.id];
         race.entrants = race.entrants.filter(x => x !== socket.id);
         io.emit('playerLeave', socket.id);
-        if(race.entrants.length < 2 && race.status !== 'idle') {
-            endRace(); // Cancel if everyone leaves
-        }
+        io.emit('countUpdate', Object.keys(players).length);
+        if(race.entrants.length < 2 && race.status !== 'idle') endRace();
     });
 });
 
@@ -129,15 +102,11 @@ function startRaceSequence() {
     race.status = 'countdown';
     io.emit('raceStatus', { count: race.entrants.length, status: 'countdown' });
     io.emit('serverMsg', "RACE STARTING IN 5 SECONDS!");
-    
     setTimeout(() => {
         race.status = 'racing';
-        race.startTime = Date.now();
         race.finished = [];
-        // Define Grid Positions
         const grid = {};
         race.entrants.forEach((id, index) => {
-            // Grid formation at start line (x=110, z=0)
             grid[id] = { x: 110 - (index * 10), z: (index % 2 === 0 ? -5 : 5) }; 
         });
         io.emit('raceStart', { grid: grid });
