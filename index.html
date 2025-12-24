@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TURBO DRIFT: OPEN WORLD</title>
+    <title>TURBO DRIFT: GPS FIXED</title>
     <style>
         :root { --neon: #00f3ff; --danger: #ff0055; --bg: #000; }
         body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; user-select: none; color: white; }
@@ -14,9 +14,16 @@
         .money { font-size: 24px; font-weight: 900; color: #fff; }
         .money span { color: var(--neon); }
         
-        /* MINIMAP */
-        #minimap-wrapper { pointer-events: auto; width: 200px; height: 200px; margin-top: 10px; border: 2px solid #333; border-radius: 10px; overflow: hidden; background: rgba(0,0,0,0.8); cursor: pointer; transition: 0.2s; }
-        #minimap-canvas { width: 100%; height: 100%; object-fit: contain; }
+        /* MINIMAP (RADAR) */
+        #minimap-wrapper { pointer-events: auto; width: 200px; height: 200px; margin-top: 10px; border: 3px solid #333; border-radius: 50%; overflow: hidden; background: rgba(0,0,0,0.9); cursor: pointer; transition: 0.2s; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #minimap-wrapper:hover { border-color: var(--neon); transform: scale(1.05); }
+        #minimap-canvas { width: 100%; height: 100%; }
+        /* Crosshair for minimap center */
+        #minimap-wrapper::after { content: ''; position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: var(--neon); transform: translate(-50%, -50%); border-radius: 50%; box-shadow: 0 0 5px var(--neon); }
+
+        /* FULL MAP */
+        #big-map { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 200; pointer-events: auto; flex-direction: column; align-items: center; justify-content: center; }
+        #big-map-canvas { background: #111; border: 2px solid var(--neon); box-shadow: 0 0 50px var(--neon); cursor: crosshair; }
 
         /* TRACK SELECTOR */
         #track-select { pointer-events: auto; display: flex; gap: 10px; margin-top: 10px; }
@@ -31,12 +38,14 @@
         #msg-area { position: absolute; top: 200px; width: 100%; text-align: center; pointer-events: none; }
         .msg { display: inline-block; background: rgba(0,0,0,0.8); padding: 10px 30px; border-radius: 20px; border: 1px solid var(--neon); margin-bottom: 5px; font-weight: bold; animation: fade 4s forwards; }
 
+        /* BOTTOM HUD */
         .hud-bot { display: flex; justify-content: space-between; align-items: flex-end; }
         .speedo { text-align: right; }
         .speed-val { font-size: 90px; font-weight: 900; line-height: 0.8; font-style: italic; }
         .bar-bg { width: 300px; height: 12px; background: #333; margin-top: 10px; border-radius: 6px; overflow: hidden; }
         .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--neon), var(--danger)); transition: width 0.05s; }
         
+        /* SHOP */
         #shop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 99; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 800px; }
         .item { border: 1px solid #444; padding: 20px; border-radius: 10px; text-align: center; background: rgba(255,255,255,0.05); }
@@ -58,9 +67,11 @@
                     <button style="margin-left:10px; background:var(--neon); border:none; padding:5px 15px; cursor:pointer;" onclick="Game.toggleShop()">GARAGE</button>
                 </div>
                 
-                <div id="minimap-wrapper">
+                <!-- MINIMAP -->
+                <div id="minimap-wrapper" onclick="Game.toggleBigMap()">
                     <canvas id="minimap-canvas" width="200" height="200"></canvas>
                 </div>
+                <div style="font-size:10px; color:#aaa; margin-top:5px; text-align:center;">CLICK FOR MAP (M)</div>
 
                 <div id="track-select">
                     <button class="track-btn" onclick="Game.teleport(0)">CIRCUIT</button>
@@ -89,6 +100,13 @@
                 <div class="bar-bg"><div class="bar-fill" id="rpm"></div></div>
             </div>
         </div>
+    </div>
+
+    <!-- FULL MAP MODAL -->
+    <div id="big-map">
+        <canvas id="big-map-canvas" width="600" height="600"></canvas>
+        <div style="margin-top:10px; color:#aaa;">CLICK TO SET WAYPOINT • PRESS 'M' TO CLOSE</div>
+        <button onclick="Game.clearWaypoint()" style="margin-top:10px; background:#333; color:white; border:1px solid #555; padding:5px 15px; cursor:pointer;">CLEAR WAYPOINT</button>
     </div>
 
     <div id="shop">
@@ -186,20 +204,21 @@
             }
             update(inputs, dt, terrainFn, onRoad) {
                 const h = terrainFn(this.pos.x, this.pos.z);
-                let accel = 0;
-                if(inputs.ArrowUp) accel = this.stats.accel;
-                if(inputs.ArrowDown) accel = -this.stats.accel;
                 
-                // OFF-ROAD PENALTY (Friction)
-                if(!onRoad && Math.abs(this.speed) > 0.3) {
-                    this.speed *= 0.95; // Slow down fast
-                }
-
+                // 1. INPUTS
+                let accel = 0;
+                // FIX: Arrow Up = Negative Speed (Forward in 3D is -Z)
+                if(inputs.ArrowUp) accel = -this.stats.accel; // Inverted for correct map direction
+                if(inputs.ArrowDown) accel = this.stats.accel;
+                
+                // Friction
+                if(!onRoad && Math.abs(this.speed) > 0.3) this.speed *= 0.95; // Offroad penalty
                 this.speed += accel;
-                this.speed *= 0.98; // Normal drag
+                this.speed *= 0.98; // Drag
 
+                // 2. TURNING
                 if(Math.abs(this.speed) > 0.1) {
-                    const dir = this.speed > 0 ? 1 : -1;
+                    const dir = this.speed > 0 ? 1 : -1; // Reverse logic
                     const turnForce = this.stats.turn * 3.5; 
                     if(inputs.ArrowLeft) this.rotVel += turnForce * dt * dir;
                     if(inputs.ArrowRight) this.rotVel -= turnForce * dt * dir;
@@ -210,7 +229,10 @@
                 q.setFromAxisAngle(new THREE.Vector3(0,1,0), this.rotVel);
                 this.quat.multiply(q).normalize();
 
+                // 3. MOVEMENT
+                // Standard Forward is (0,0,1). We treat Negative Speed as forward.
                 const fwd = new THREE.Vector3(0,0,1).applyQuaternion(this.quat);
+                
                 const grip = inputs.Shift ? 0.05 : (this.stats.grip || 0.8);
                 const targetVel = fwd.clone().multiplyScalar(this.speed);
                 this.velocity.lerp(targetVel, grip);
@@ -222,7 +244,8 @@
                 this.mesh.quaternion.copy(this.quat);
                 this.wheels.forEach(w => w.rotation.x += this.speed);
                 this.mesh.children[0].rotation.z = -this.rotVel * 4; 
-                this.mesh.children[0].rotation.x = -this.speed * 0.05; 
+                // Pitch based on accel
+                this.mesh.children[0].rotation.x = this.speed * 0.05; 
 
                 if(inputs.Shift && Math.abs(this.speed) > 0.5) Game.emitSmoke(this.pos);
             }
@@ -235,8 +258,8 @@
             socket: null, scene: null, camera: null, renderer: null, audio: new AudioController(),
             input: { ArrowUp:false, ArrowDown:false, ArrowLeft:false, ArrowRight:false, Shift:false },
             players: {}, myCar: null, racing: false, camIndex: 0,
-            tracks: [], currentTrack: 0,
-            cpIndex: 0, lap: 1,
+            tracks: [], currentTrack: 0, cpIndex: 0, lap: 1,
+            waypoint: null, waypointMesh: null,
             
             init() {
                 this.scene = new THREE.Scene();
@@ -259,6 +282,25 @@
                 this.setupInputs();
                 this.connect();
                 
+                // Waypoint
+                const wGeo = new THREE.CylinderGeometry(1, 1, 300, 8);
+                const wMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.5 });
+                this.waypointMesh = new THREE.Mesh(wGeo, wMat);
+                this.waypointMesh.visible = false;
+                this.scene.add(this.waypointMesh);
+
+                // Map Clicks
+                const bigMap = document.getElementById('big-map-canvas');
+                bigMap.addEventListener('mousedown', e => {
+                    const r = bigMap.getBoundingClientRect();
+                    const x = e.clientX - r.left;
+                    const y = e.clientY - r.top;
+                    // Map 600px -> 4000 units. (-2000 to 2000)
+                    const wx = (x/600)*4000 - 2000;
+                    const wz = (y/600)*4000 - 2000;
+                    this.setWaypoint(wx, wz);
+                });
+                
                 window.addEventListener('resize', () => {
                     this.camera.aspect = window.innerWidth/window.innerHeight;
                     this.camera.updateProjectionMatrix();
@@ -271,7 +313,6 @@
 
             buildWorld() {
                 this.simplex = new SimplexNoise();
-                // Terrain
                 const geo = new THREE.PlaneGeometry(4000, 4000, 200, 200);
                 const pos = geo.attributes.position;
                 for(let i=0; i<pos.count; i++) {
@@ -286,35 +327,20 @@
                 terrain.receiveShadow = true;
                 this.scene.add(terrain);
 
-                // --- GENERATE COMPLEX TRACKS ---
-                this.createTrack(0, "SERPENT", [
-                    new THREE.Vector3(0,0,0), new THREE.Vector3(100,0,200), new THREE.Vector3(0,0,400), 
-                    new THREE.Vector3(-200,0,300), new THREE.Vector3(-100,0,0)
-                ], 0xff0055, true);
+                this.createTrack(0, "SERPENT", [new THREE.Vector3(0,0,0), new THREE.Vector3(100,0,200), new THREE.Vector3(0,0,400), new THREE.Vector3(-200,0,300), new THREE.Vector3(-100,0,0)], 0xff0055, true);
+                this.createTrack(1, "NEON CITY", [new THREE.Vector3(0,0,-600), new THREE.Vector3(300,0,-600), new THREE.Vector3(300,0,-900), new THREE.Vector3(0,0,-900), new THREE.Vector3(0,0,-800), new THREE.Vector3(-100,0,-800), new THREE.Vector3(-100,0,-600)], 0x00f3ff, true);
+                this.createTrack(2, "CANYON", [new THREE.Vector3(600,0,0), new THREE.Vector3(900,20,100), new THREE.Vector3(1000,-10,300), new THREE.Vector3(800,10,500), new THREE.Vector3(500,0,300)], 0xffaa00, true);
 
-                this.createTrack(1, "NEON CITY", [
-                    new THREE.Vector3(0,0,-600), new THREE.Vector3(300,0,-600), new THREE.Vector3(300,0,-900),
-                    new THREE.Vector3(0,0,-900), new THREE.Vector3(0,0,-800), new THREE.Vector3(-100,0,-800),
-                    new THREE.Vector3(-100,0,-600)
-                ], 0x00f3ff, true); // City layout
-
-                // CITY BUILDINGS
+                // Buildings
                 const boxGeo = new THREE.BoxGeometry(40, 150, 40);
                 const boxMat = new THREE.MeshStandardMaterial({color:0x222});
                 for(let i=0; i<40; i++) {
                     const b = new THREE.Mesh(boxGeo, boxMat);
                     b.position.set(-200 + Math.random()*600, 75, -1000 + Math.random()*500);
-                    // Don't spawn on track area roughly
                     this.scene.add(b);
                 }
-
-                this.createTrack(2, "CANYON", [
-                    new THREE.Vector3(600,0,0), new THREE.Vector3(900,20,100), new THREE.Vector3(1000,-10,300),
-                    new THREE.Vector3(800,10,500), new THREE.Vector3(500,0,300)
-                ], 0xffaa00, true);
             },
 
-            // Creates a smooth spline track
             createTrack(id, name, points, color, closed) {
                 const curve = new THREE.CatmullRomCurve3(points);
                 curve.closed = closed;
@@ -324,30 +350,18 @@
                 mesh.position.y = 0.5;
                 mesh.receiveShadow = true;
                 this.scene.add(mesh);
-
-                // Barriers (Sides)
                 const wire = new THREE.Mesh(new THREE.TubeGeometry(curve, 100, 16, 3, closed), new THREE.MeshBasicMaterial({color:color, wireframe:true}));
                 wire.position.y = 2;
                 this.scene.add(wire);
-
-                // Store Track Data
                 const spacedPoints = curve.getSpacedPoints(40);
-                this.tracks.push({ 
-                    id, name, 
-                    curve, 
-                    checkpoints: spacedPoints, // Many invisible gates
-                    spawn: points[0],
-                    color 
-                });
+                this.tracks.push({ id, name, curve, checkpoints: spacedPoints, spawn: points[0], color });
             },
 
             getHeight(x, z) {
-                // Flatten track areas roughly
-                if(x > -300 && x < 300 && z > -100 && z < 500) return 0; // Track 0
-                if(z < -500) return 0; // City
-                // Canyon height variation
+                if(x > -300 && x < 300 && z > -100 && z < 500) return 0;
+                if(z < -500) return 0;
                 let y = Math.max(0, this.simplex.noise2D(x*0.003, z*0.003) * 40);
-                if(x > 400) y += Math.sin(x*0.02)*10; // Bumps
+                if(x > 400) y += Math.sin(x*0.02)*10;
                 return y;
             },
 
@@ -364,16 +378,10 @@
                 this.notify(`WARPING TO: ${t.name}`);
             },
 
-            // --- GAMEPLAY ---
             spawnMe(carId) {
                 if(this.myCar) this.scene.remove(this.myCar.mesh);
                 const colors = [0x3366ff, 0xff3333, 0xffaa00, 0xcc00ff];
-                const stats = [
-                    {accel:0.02, turn:0.06, grip:0.95}, 
-                    {accel:0.03, turn:0.065, grip:0.95}, 
-                    {accel:0.04, turn:0.06, grip:0.90}, 
-                    {accel:0.06, turn:0.08, grip:1.1}
-                ];
+                const stats = [{accel:0.02, turn:0.06, grip:0.95}, {accel:0.03, turn:0.065, grip:0.95}, {accel:0.04, turn:0.06, grip:0.90}, {accel:0.06, turn:0.08, grip:1.1}];
                 this.myCar = new Car(stats[carId], colors[carId]);
                 this.scene.add(this.myCar.mesh);
                 this.teleport(0);
@@ -419,18 +427,12 @@
                     this.racing = true;
                     this.myCar.speed = 0;
                     this.myCar.velocity.set(0,0,0);
-                    // Spawn at current track start
                     const t = this.tracks[this.currentTrack];
                     this.myCar.pos.copy(t.spawn);
                     this.myCar.pos.y = 2;
-                    // Look at 2nd point
-                    const next = t.checkpoints[1];
-                    this.myCar.mesh.lookAt(next); 
-                    this.myCar.quat.copy(this.myCar.mesh.quaternion); // Sync physics rot
-                    
-                    this.cpIndex = 0;
-                    this.lap = 1;
-
+                    this.myCar.mesh.lookAt(t.checkpoints[1]); 
+                    this.myCar.quat.copy(this.myCar.mesh.quaternion);
+                    this.cpIndex = 0; this.lap = 1;
                     document.getElementById('join-btn').style.display = 'none';
                     document.getElementById('lap-counter').style.display = 'block';
                     this.notify("🟢 GO! GO! GO!");
@@ -457,6 +459,7 @@
                     if(e.key === "Shift") this.input.Shift = false;
                     if(e.key.toLowerCase() === 'r') this.respawn();
                     if(e.key.toLowerCase() === 'c') this.camIndex = (this.camIndex + 1) % 3;
+                    if(e.key.toLowerCase() === 'm') this.toggleBigMap();
                 });
             },
 
@@ -483,17 +486,11 @@
                 if(!this.racing) return;
                 const t = this.tracks[this.currentTrack];
                 const cpList = t.checkpoints;
-                
-                // Target next CP
                 let nextCPIndex = (this.cpIndex + 1) % cpList.length;
                 let target = cpList[nextCPIndex];
-                
-                // Distance to target
                 if(this.myCar.pos.distanceTo(target) < 25) {
                     this.cpIndex = nextCPIndex;
                     this.myCar.lastSafePos.copy(this.myCar.pos);
-                    
-                    // Lap Complete
                     if(this.cpIndex === 0) {
                         this.lap++;
                         document.getElementById('lap-val').innerText = Math.min(this.lap, 5);
@@ -504,27 +501,19 @@
                 }
             },
             
-            // Check if we are on the road (Distance to spline)
             checkOffRoad() {
                 if(!this.myCar) return false;
                 const t = this.tracks[this.currentTrack];
-                // Approximate: find closest point in spline
-                // Full spline check is heavy, so we check distance to current CP segment
                 const p1 = t.checkpoints[this.cpIndex];
                 const p2 = t.checkpoints[(this.cpIndex + 1) % t.checkpoints.length];
-                
-                // Simple distance check to points, rough approximation
-                // If > 20 units away from EITHER point, check logic
-                if(this.myCar.pos.distanceTo(p1) > 30 && this.myCar.pos.distanceTo(p2) > 30) {
-                    return false; // Off road
-                }
+                if(this.myCar.pos.distanceTo(p1) > 30 && this.myCar.pos.distanceTo(p2) > 30) return false;
                 return true;
             },
 
             updateCam() {
                 let offset;
-                if(this.camIndex === 0) offset = new THREE.Vector3(0, 8, -18);
-                else if(this.camIndex === 1) offset = new THREE.Vector3(0, 20, -40);
+                if(this.camIndex === 0) offset = new THREE.Vector3(0, 8, 18); // Behind car (Positive Z is behind now if we invert speed)
+                else if(this.camIndex === 1) offset = new THREE.Vector3(0, 20, 40);
                 else offset = new THREE.Vector3(0, 80, 0);
                 offset.applyQuaternion(this.myCar.quat);
                 const target = this.myCar.pos.clone().add(offset);
@@ -532,21 +521,31 @@
                 this.camera.lookAt(this.myCar.pos);
             },
 
+            // --- MAP LOGIC ---
             drawMinimap() {
                 const cvs = document.getElementById('minimap-canvas');
                 const ctx = cvs.getContext('2d');
                 ctx.clearRect(0,0,200,200);
+                if(!this.myCar) return;
+                
+                // RADAR MODE: Player Center
                 ctx.save();
                 ctx.translate(100, 100);
-                const scale = 0.15;
-                
-                // Draw all tracks
+                // Rotate map to match player heading? Let's stay North-Up for stability
+                const scale = 0.5;
+                const px = this.myCar.pos.x;
+                const pz = this.myCar.pos.z;
+
+                // Tracks (Relative)
                 this.tracks.forEach(t => {
-                    ctx.strokeStyle = "#444";
+                    ctx.strokeStyle = (t.id === this.currentTrack) ? "#fff" : "#444";
+                    ctx.lineWidth = 3;
                     ctx.beginPath();
                     t.checkpoints.forEach((p, i) => {
-                        if(i===0) ctx.moveTo(p.x*scale, p.z*scale);
-                        else ctx.lineTo(p.x*scale, p.z*scale);
+                        const rx = (p.x - px) * scale;
+                        const rz = (p.z - pz) * scale;
+                        if(i===0) ctx.moveTo(rx, rz);
+                        else ctx.lineTo(rx, rz);
                     });
                     ctx.closePath();
                     ctx.stroke();
@@ -555,16 +554,83 @@
                 // Players
                 Object.values(this.players).forEach(p => {
                     const m = p.mesh;
-                    ctx.fillStyle = "#ff0055";
-                    ctx.beginPath(); ctx.arc(m.position.x*scale, m.position.z*scale, 2, 0, Math.PI*2); ctx.fill();
+                    const rx = (m.position.x - px) * scale;
+                    const rz = (m.position.z - pz) * scale;
+                    if(rx*rx + rz*rz < 100*100) { // Clip
+                        ctx.fillStyle = "#ff0055";
+                        ctx.beginPath(); ctx.arc(rx, rz, 4, 0, Math.PI*2); ctx.fill();
+                    }
                 });
-                
-                // Me
-                const me = this.myCar.pos;
+
+                // Waypoint
+                if(this.waypoint) {
+                    const wx = (this.waypoint.x - px) * scale;
+                    const wz = (this.waypoint.z - pz) * scale;
+                    // Draw arrow if off screen?
+                    ctx.fillStyle = "#00f3ff";
+                    ctx.beginPath(); ctx.arc(wx, wz, 6, 0, Math.PI*2); ctx.fill();
+                }
+
+                // Me (Center)
                 ctx.fillStyle = "#00f3ff";
-                ctx.beginPath(); ctx.arc(me.x*scale, me.z*scale, 3, 0, Math.PI*2); ctx.fill();
-                
+                ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill();
+                // Vision Cone
+                ctx.beginPath(); ctx.moveTo(0,0);
+                const rot = new THREE.Euler().setFromQuaternion(this.myCar.quat).y;
+                // Correct rotation for canvas (Top is -Y, 3D Forward is -Z. So -Z maps to -Y. Rotation 0 maps to -PI/2)
+                ctx.arc(0, 0, 30, rot - Math.PI/2 - 0.5, rot - Math.PI/2 + 0.5);
+                ctx.fillStyle = "rgba(0, 243, 255, 0.2)"; ctx.fill();
                 ctx.restore();
+            },
+
+            drawBigMap() {
+                const cvs = document.getElementById('big-map-canvas');
+                const ctx = cvs.getContext('2d');
+                ctx.clearRect(0,0,600,600);
+                ctx.save();
+                ctx.translate(300, 300);
+                const scale = 600 / 4000;
+                
+                // Tracks
+                this.tracks.forEach(t => {
+                    ctx.strokeStyle = "#444"; ctx.lineWidth = 5;
+                    ctx.beginPath();
+                    t.checkpoints.forEach((p, i) => {
+                        if(i===0) ctx.moveTo(p.x*scale, p.z*scale);
+                        else ctx.lineTo(p.x*scale, p.z*scale);
+                    });
+                    ctx.closePath(); ctx.stroke();
+                });
+
+                // Waypoint
+                if(this.waypoint) {
+                    ctx.fillStyle = "#00f3ff";
+                    ctx.beginPath(); ctx.arc(this.waypoint.x*scale, this.waypoint.z*scale, 5, 0, Math.PI*2); ctx.fill();
+                }
+
+                // Me
+                if(this.myCar) {
+                    ctx.fillStyle = "white";
+                    ctx.beginPath(); ctx.arc(this.myCar.pos.x*scale, this.myCar.pos.z*scale, 3, 0, Math.PI*2); ctx.fill();
+                }
+                ctx.restore();
+            },
+
+            toggleBigMap() {
+                const m = document.getElementById('big-map');
+                m.style.display = m.style.display==='flex'?'none':'flex';
+            },
+            setWaypoint(x, z) {
+                this.waypoint = {x, z};
+                this.waypointMesh.position.set(x, 100, z);
+                this.waypointMesh.visible = true;
+                this.notify("WAYPOINT SET");
+                this.toggleBigMap();
+            },
+            clearWaypoint() {
+                this.waypoint = null;
+                this.waypointMesh.visible = false;
+                this.toggleBigMap();
             },
 
             animate() {
@@ -582,7 +648,9 @@
                         x: this.myCar.pos.x, y: this.myCar.pos.y, z: this.myCar.pos.z,
                         qx: this.myCar.quat.x, qy: this.myCar.quat.y, qz: this.myCar.quat.z, qw: this.myCar.quat.w
                     });
+                    
                     this.drawMinimap();
+                    if(document.getElementById('big-map').style.display === 'flex') this.drawBigMap();
                 }
                 if(this.smoke) {
                     for(let i=this.smoke.length-1; i>=0; i--) {
