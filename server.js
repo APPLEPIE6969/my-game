@@ -12,7 +12,7 @@ const CATALOG = {
     0: { name: "Rookie Kart", price: 0, speed: 1.0, grip: 0.90 },
     1: { name: "Street Tuner", price: 500, speed: 1.3, grip: 0.95 },
     2: { name: "Rally Beast", price: 1500, speed: 1.5, grip: 0.85 },
-    3: { name: "F1 Prototype", price: 5000, speed: 2.2, grip: 1.2 } // 1.2 Grip = Super Sharp
+    3: { name: "F1 Prototype", price: 5000, speed: 2.3, grip: 1.2 }
 };
 
 io.on('connection', (socket) => {
@@ -23,10 +23,11 @@ io.on('connection', (socket) => {
         x: 0, y: 0, z: 0,
         qx: 0, qy: 0, qz: 0, qw: 1,
         speed: 0,
-        money: 500, // Bonus start cash to test cars
+        money: 500,
         carId: 0,
         owned: [0],
         lap: 0,
+        cpIndex: 0, // Checkpoint Index
         finished: false,
         name: "Racer " + socket.id.substr(0,4),
         color: Math.random() * 0xffffff
@@ -73,14 +74,14 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('lapComplete', (lap) => {
+    socket.on('lapComplete', (lapData) => {
         const p = players[socket.id];
         if(p && race.status === 'racing' && !p.finished) {
-            p.lap = lap;
+            p.lap = lapData.lap;
             if(p.lap > race.laps) {
                 p.finished = true;
                 race.finished.push(socket.id);
-                let prize = race.finished.length === 1 ? 500 : 250;
+                let prize = race.finished.length === 1 ? 600 : 300;
                 p.money += prize;
                 io.to(socket.id).emit('economyUpdate', { money: p.money, owned: p.owned, car: p.carId });
                 io.emit('serverMsg', `${p.name} Finished #${race.finished.length} (+$${prize})`);
@@ -107,12 +108,8 @@ function startRaceSequence() {
     setTimeout(() => {
         race.status = 'racing';
         race.finished = [];
-        Object.values(players).forEach(p => { p.finished = false; p.lap = 1; });
-        const grid = {};
-        race.entrants.forEach((id, index) => {
-            grid[id] = { x: 110 - (index * 10), z: (index % 2 === 0 ? -5 : 5) }; 
-        });
-        io.emit('raceStart', { grid: grid });
+        Object.values(players).forEach(p => { p.finished = false; p.lap = 1; p.cpIndex = 0; });
+        io.emit('raceStart', {});
     }, 5000);
 }
 
