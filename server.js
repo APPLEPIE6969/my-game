@@ -8,11 +8,11 @@ app.use(express.static(__dirname));
 // --- GAME STATE ---
 let players = {};
 let race = {
-    active: false,
+    status: 'idle', // idle, countdown, racing
+    laps: 5,
     startTime: 0,
-    laps: 3,
-    winner: null,
-    participants: []
+    entrants: [],
+    finished: []
 };
 
 // --- SHOP DATA ---
@@ -26,11 +26,10 @@ const CATALOG = {
 io.on('connection', (socket) => {
     console.log(`[CONNECT] ${socket.id}`);
 
-    // Initialize Player Data
     players[socket.id] = {
         id: socket.id,
         x: 0, y: 0, z: 0,
-        qx: 0, qy: 0, qz: 0, qw: 1, // Quaternion rotation (smooth 3D)
+        qx: 0, qy: 0, qz: 0, qw: 1,
         speed: 0,
         steering: 0,
         name: "Racer " + socket.id.substr(0,4),
@@ -39,33 +38,21 @@ io.on('connection', (socket) => {
         carId: 0,
         owned: [0],
         lap: 0,
-        checkpoint: 0
+        checkpoint: 0,
+        finished: false
     };
 
-    // Send Initial State
     socket.emit('welcome', { id: socket.id, list: players, shop: CATALOG, race: race });
     socket.broadcast.emit('playerJoin', players[socket.id]);
 
-    // 1. Movement Handler (High Frequency)
     socket.on('move', (data) => {
         if(players[socket.id]) {
             const p = players[socket.id];
-            p.x = data.x; p.y = data.y; p.z = data.z;
-            p.qx = data.qx; p.qy = data.qy; p.qz = data.qz; p.qw = data.qw;
-            p.speed = data.s;
-            p.steering = data.st;
-            // Relay to others (Optimized)
-            socket.broadcast.emit('playerUpdate', {
-                id: socket.id,
-                x: p.x, y: p.y, z: p.z,
-                qx: p.qx, qy: p.qy, qz: p.qz, qw: p.qw,
-                s: p.speed,
-                st: p.steering
-            });
+            Object.assign(p, data); // Update position/rot
+            socket.broadcast.emit('playerUpdate', { id: socket.id, ...data });
         }
     });
 
-    // 2. Shop Logic
     socket.on('buy', (id) => {
         const p = players[socket.id];
         const item = CATALOG[id];
@@ -85,58 +72,84 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 3. Race Logic
+    // --- RACE LOGIC ---
     socket.on('joinRace', () => {
-        if(race.active) return;
-        if(!race.participants.includes(socket.id)) {
-            race.participants.push(socket.id);
-            io.emit('raceStatus', { count: race.participants.length, active: false });
+        if(race.status !== 'idle') return;
+        if(!race.entrants.includes(socket.id)) {
+            race.entrants.push(socket.id);
+            io.emit('raceStatus', { count: race.entrants.length, status: 'waiting' });
             
-            // Auto start if 2+ players or debug
-            if(race.participants.length >= 1) { 
-                startRaceCountdown(); 
+            // REQUIRE 2 PLAYERS
+            if(race.entrants.length >= 2) {
+                startRaceSequence();
+            } else {
+                io.emit('serverMsg', "Waiting for 1 more player...");
             }
         }
     });
 
-    socket.on('finishLap', (lapNum) => {
+    socket.on('lapComplete', (lap) => {
         const p = players[socket.id];
-        if(p && race.active) {
-            p.lap = lapNum;
+        if(p && race.status === 'racing' && !p.finished) {
+            p.lap = lap;
             if(p.lap > race.laps) {
-                // WINNER
-                p.money += 500; // Big payout
+                // FINISHED
+                p.finished = true;
+                race.finished.push(socket.id);
+                
+                // PRIZES
+                let prize = 0;
+                let rank = race.finished.length;
+                if(rank === 1) prize = 300;
+                else if(rank === 2) prize = 150;
+                else prize = 50;
+
+                p.money += prize;
                 io.to(socket.id).emit('economyUpdate', { money: p.money, owned: p.owned, car: p.carId });
-                io.emit('raceOver', { winner: p.name });
-                resetRace();
+                io.emit('serverMsg', `${p.name} finished #${rank} and won $${prize}!`);
+                
+                if(race.finished.length === race.entrants.length) {
+                    endRace();
+                }
             }
         }
     });
 
     socket.on('disconnect', () => {
         delete players[socket.id];
-        race.participants = race.participants.filter(x => x !== socket.id);
+        race.entrants = race.entrants.filter(x => x !== socket.id);
         io.emit('playerLeave', socket.id);
+        if(race.entrants.length < 2 && race.status !== 'idle') {
+            endRace(); // Cancel if everyone leaves
+        }
     });
 });
 
-let raceTimer = null;
-function startRaceCountdown() {
-    if(raceTimer) return;
-    io.emit('msg', "RACE STARTING IN 5...");
-    raceTimer = setTimeout(() => {
-        race.active = true;
+function startRaceSequence() {
+    race.status = 'countdown';
+    io.emit('raceStatus', { count: race.entrants.length, status: 'countdown' });
+    io.emit('serverMsg', "RACE STARTING IN 5 SECONDS!");
+    
+    setTimeout(() => {
+        race.status = 'racing';
         race.startTime = Date.now();
-        io.emit('raceStart', race);
-        raceTimer = null;
+        race.finished = [];
+        // Define Grid Positions
+        const grid = {};
+        race.entrants.forEach((id, index) => {
+            // Grid formation at start line (x=110, z=0)
+            grid[id] = { x: 110 - (index * 10), z: (index % 2 === 0 ? -5 : 5) }; 
+        });
+        io.emit('raceStart', { grid: grid });
     }, 5000);
 }
 
-function resetRace() {
-    race.active = false;
-    race.participants = [];
-    race.winner = null;
-    io.emit('raceStatus', { count: 0, active: false });
+function endRace() {
+    race.status = 'idle';
+    race.entrants = [];
+    race.finished = [];
+    io.emit('raceStatus', { count: 0, status: 'idle' });
+    io.emit('serverMsg', "Race Event Ended. Lobby Open.");
 }
 
 const port = process.env.PORT || 3000;
