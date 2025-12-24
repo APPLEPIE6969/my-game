@@ -79,7 +79,7 @@
             acceleration: 0.02,
             friction: 0.98,
             turnSpeed: 0.04,
-            driftFactor: 0.96, // Lower = more slippery
+            driftFactor: 0.96,
             cameraHeight: 25,
             cameraDistance: 35,
             lerpSpeed: 0.1
@@ -141,6 +141,13 @@
             animate();
         }
 
+        // --- THIS WAS MISSING BEFORE! ---
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
         // =========================================================================
         // 🌍 WORLD GENERATION
         // =========================================================================
@@ -152,7 +159,7 @@
                 roughness: 1,
                 flatShading: true
             });
-            // Distort ground slightly for low-poly look
+            // Distort ground slightly
             const pos = groundGeo.attributes.position;
             for(let i = 0; i < pos.count; i++) {
                 pos.setZ(i, Math.random() * 1.5);
@@ -187,9 +194,8 @@
         }
 
         function createTree(x, z) {
-            // Don't put trees on the track
             const dist = Math.sqrt(x*x + z*z);
-            if(dist > 70 && dist < 130) return;
+            if(dist > 70 && dist < 130) return; // Not on track
 
             const group = new THREE.Group();
             
@@ -223,7 +229,7 @@
         }
 
         // =========================================================================
-        // 🚗 CAR FACTORY (Procedural Low Poly Car)
+        // 🚗 CAR FACTORY
         // =========================================================================
         function createCarMesh(color) {
             const carGroup = new THREE.Group();
@@ -271,7 +277,12 @@
             canvas.width = 256; canvas.height = 64;
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = "rgba(0,0,0,0.5)";
-            ctx.fillRect(0,0,256,64);
+            
+            // Safe rect drawing
+            if(ctx.roundRect) ctx.roundRect(0,0,256,64,10);
+            else ctx.fillRect(0,0,256,64);
+            
+            ctx.fill();
             ctx.fillStyle = "white";
             ctx.font = "bold 30px Arial";
             ctx.textAlign = "center";
@@ -285,12 +296,6 @@
             sprite.name = "nametag";
             carGroup.add(sprite);
 
-            // Headlights
-            const lightTarget = new THREE.Object3D();
-            lightTarget.position.set(0, 0, -10);
-            carGroup.add(lightTarget);
-            
-            // Only add actual light sources to MY car later to save performance
             return carGroup;
         }
 
@@ -300,7 +305,8 @@
                 const ctx = sprite.material.map.image.getContext('2d');
                 ctx.clearRect(0,0,256,64);
                 ctx.fillStyle = "rgba(0,0,0,0.5)";
-                ctx.roundRect ? ctx.roundRect(0,0,256,64,10) : ctx.fillRect(0,0,256,64);
+                if(ctx.roundRect) ctx.roundRect(0,0,256,64,10);
+                else ctx.fillRect(0,0,256,64);
                 ctx.fill();
                 ctx.fillStyle = "white";
                 ctx.fillText(name.toUpperCase(), 128, 42);
@@ -324,23 +330,12 @@
                 if(myId) {
                     clearInterval(checkReady);
                     
-                    // Create My Car
                     const color = Math.random() * 0xffffff;
                     myCar.mesh = createCarMesh(color);
                     myCar.mesh.position.set(100, 0, 0); // Start on track
                     scene.add(myCar.mesh);
                     updateCarName(myCar.mesh, nameInput);
 
-                    // Add Headlights
-                    const hl = new THREE.SpotLight(0xffffff, 1);
-                    hl.position.set(0, 1, -1.5);
-                    hl.angle = Math.PI/6;
-                    hl.penumbra = 0.5;
-                    hl.castShadow = true;
-                    hl.target = myCar.mesh.children[5]; // lightTarget
-                    myCar.mesh.add(hl);
-
-                    // Send info to server
                     socket.emit('setDetails', { name: nameInput, color: color });
                     
                     isPlaying = true;
@@ -351,68 +346,47 @@
         function updatePhysics() {
             if (!myCar.mesh) return;
 
-            // 1. Acceleration
             if (input.up) myCar.speed += GAME.acceleration;
             if (input.down) myCar.speed -= GAME.acceleration;
-
-            // 2. Drag / Friction
             myCar.speed *= GAME.friction;
             
-            // 3. Steering
             if (Math.abs(myCar.speed) > 0.01) {
                 const dir = myCar.speed > 0 ? 1 : -1;
                 if (input.left) myCar.steering += GAME.turnSpeed * dir;
                 if (input.right) myCar.steering -= GAME.turnSpeed * dir;
             }
-
-            // Return steering to center
             if (!input.left && !input.right) myCar.steering *= 0.8;
 
-            // 4. Drift Logic
             myCar.drift = input.space && Math.abs(myCar.speed) > 0.3;
-            const driftMult = myCar.drift ? 2.5 : 1.0; // Turn sharper when drifting
+            const driftMult = myCar.drift ? 2.5 : 1.0; 
 
-            // Apply Rotation
             myCar.mesh.rotation.y += myCar.steering * driftMult * (myCar.speed * 0.5);
 
-            // 5. Velocity Calculation (The secret sauce)
-            // We separate "facing direction" from "moving direction" for drift
             const rot = myCar.mesh.rotation.y;
-            
-            // If drifting, we slide. If not, we follow nose.
-            const slip = myCar.drift ? 0.94 : 0.05; 
-            
-            // Calculate forward vector
             const forwardX = -Math.sin(rot);
             const forwardZ = -Math.cos(rot);
 
-            // Lerp velocity towards forward vector
             myCar.velocity.x = myCar.velocity.x * 0.9 + (forwardX * myCar.speed) * 0.1;
             myCar.velocity.z = myCar.velocity.z * 0.9 + (forwardZ * myCar.speed) * 0.1;
 
-            // Apply position
             myCar.mesh.position.x += myCar.velocity.x;
             myCar.mesh.position.z += myCar.velocity.z;
 
-            // 6. Camera Follow (Lerp)
+            // Camera Follow
             const camX = myCar.mesh.position.x - Math.sin(rot) * -GAME.cameraDistance;
             const camZ = myCar.mesh.position.z - Math.cos(rot) * -GAME.cameraDistance;
             
             camera.position.x += (camX - camera.position.x) * GAME.lerpSpeed;
             camera.position.z += (camZ - camera.position.z) * GAME.lerpSpeed;
             camera.position.y += (GAME.cameraHeight - camera.position.y) * GAME.lerpSpeed;
-            
             camera.lookAt(myCar.mesh.position);
 
-            // 7. Particles
             if(myCar.drift || Math.abs(myCar.speed) > 0.8) {
                 createSmoke(myCar.mesh.position, rot);
             }
 
-            // 8. Update UI
             document.getElementById('speed-text').innerText = Math.floor(Math.abs(myCar.speed) * 200);
 
-            // 9. Send to Server
             socket.emit('playerMovement', {
                 x: myCar.mesh.position.x,
                 z: myCar.mesh.position.z,
@@ -424,22 +398,15 @@
         }
 
         // =========================================================================
-        // ✨ PARTICLES
+        // ✨ PARTICLES & NETWORK
         // =========================================================================
         function createSmoke(pos, rot) {
-            if(Math.random() > 0.3) return; // Don't create too many
+            if(Math.random() > 0.3) return; 
             const pGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
             const pMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.6 });
             const p = new THREE.Mesh(pGeo, pMat);
-            
-            // Spawn at rear wheels
             const offset = (Math.random() > 0.5 ? 1 : -1);
-            p.position.set(
-                pos.x + Math.sin(rot)*2 + offset*Math.cos(rot), 
-                0.2, 
-                pos.z + Math.cos(rot)*2 - offset*Math.sin(rot)
-            );
-            
+            p.position.set(pos.x + Math.sin(rot)*2, 0.2, pos.z + Math.cos(rot)*2);
             scene.add(p);
             particles.push({ mesh: p, life: 1.0 });
         }
@@ -449,11 +416,8 @@
                 const p = particles[i];
                 p.life -= 0.02;
                 p.mesh.position.y += 0.05;
-                p.mesh.rotation.x += 0.1;
-                p.mesh.rotation.y += 0.1;
                 p.mesh.scale.multiplyScalar(1.05);
                 p.mesh.material.opacity = p.life;
-
                 if(p.life <= 0) {
                     scene.remove(p.mesh);
                     particles.splice(i, 1);
@@ -461,44 +425,30 @@
             }
         }
 
-        // =========================================================================
-        // 🌐 NETWORKING
-        // =========================================================================
         function setupSocketListeners() {
             socket.on('connect', () => { myId = socket.id; });
-
             socket.on('currentPlayers', (serverPlayers) => {
                 Object.keys(serverPlayers).forEach((id) => {
                     if (id !== myId && !players[id]) spawnOtherPlayer(serverPlayers[id]);
                 });
                 document.getElementById('player-count').innerText = Object.keys(serverPlayers).length;
             });
-
             socket.on('newPlayer', (p) => {
                 spawnOtherPlayer(p);
                 document.getElementById('player-count').innerText = parseInt(document.getElementById('player-count').innerText) + 1;
             });
-
             socket.on('playerMoved', (p) => {
                 if(players[p.id]) {
                     const car = players[p.id].mesh;
-                    // Interpolate for smoothness
                     car.position.x = car.position.x * 0.8 + p.x * 0.2;
                     car.position.z = car.position.z * 0.8 + p.z * 0.2;
                     car.rotation.y = car.rotation.y * 0.8 + p.ry * 0.2;
-                    
-                    // Visuals for other players
                     if(p.drift) createSmoke(car.position, car.rotation.y);
                 }
             });
-
             socket.on('updateDetails', (p) => {
-                if(players[p.id]) {
-                    // Re-color car (simple way: remove and add, but here we just update name)
-                    updateCarName(players[p.id].mesh, p.name);
-                }
+                if(players[p.id]) updateCarName(players[p.id].mesh, p.name);
             });
-
             socket.on('disconnect', (id) => {
                 if (players[id]) {
                     scene.remove(players[id].mesh);
@@ -516,9 +466,6 @@
             players[p.id] = { mesh: mesh, data: p };
         }
 
-        // =========================================================================
-        // 🎮 INPUT & LOOP
-        // =========================================================================
         function setupInputs() {
             document.addEventListener('keydown', (e) => {
                 switch(e.key) {
@@ -542,13 +489,10 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            if(isPlaying) {
-                updatePhysics();
-            }
+            if(isPlaying) updatePhysics();
             updateParticles();
             renderer.render(scene, camera);
         }
-        
     </script>
 </body>
 </html>
