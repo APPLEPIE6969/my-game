@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TURBO DRIFT: EVOLUTION</title>
+    <title>TURBO DRIFT: SUPERCHARGED</title>
     <style>
         :root { --neon: #00f3ff; --danger: #ff0055; --bg: #000; }
         body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; user-select: none; color: white; }
@@ -113,7 +113,6 @@
             start() {
                 if(this.init) return;
                 this.ctx.resume();
-                // Engine Rumble (Filtered Noise)
                 const bufSize = this.ctx.sampleRate * 2;
                 const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
                 const data = buf.getChannelData(0);
@@ -134,11 +133,8 @@
             }
             update(speed) {
                 if(!this.init) return;
-                // Pitch rises with speed
                 this.src.playbackRate.setTargetAtTime(0.5 + (speed*1.5), this.ctx.currentTime, 0.1);
-                // Filter opens with speed
                 this.filter.frequency.setTargetAtTime(100 + (speed*800), this.ctx.currentTime, 0.1);
-                // Volume
                 this.gain.gain.setTargetAtTime(0.3 + (speed*0.4), this.ctx.currentTime, 0.1);
             }
         }
@@ -155,18 +151,15 @@
                 const glowRed = new THREE.MeshBasicMaterial({ color: 0xff0000 });
                 const glowWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-                // 1. Chassis (Lower)
                 const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.6, 4.6), mainColor);
                 chassis.position.y = 0.6;
                 chassis.castShadow = true;
                 car.add(chassis);
 
-                // 2. Cabin (Upper)
                 const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 2.2), glassMat);
                 cabin.position.set(0, 1.15, -0.2);
                 car.add(cabin);
 
-                // 3. Wheel Arches (Fenders)
                 const fenderGeo = new THREE.BoxGeometry(2.3, 0.4, 1.2);
                 const frontFender = new THREE.Mesh(fenderGeo, mainColor);
                 frontFender.position.set(0, 0.6, -1.4);
@@ -175,7 +168,6 @@
                 rearFender.position.set(0, 0.6, 1.3);
                 car.add(rearFender);
 
-                // 4. Spoiler
                 const wing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.5), blackMat);
                 wing.position.set(0, 1.3, 2.1);
                 const poleL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.2), blackMat);
@@ -184,7 +176,6 @@
                 poleR.position.set(-0.8, 1.1, 2.1);
                 car.add(wing); car.add(poleL); car.add(poleR);
 
-                // 5. Lights
                 const tailL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), glowRed);
                 tailL.position.set(0.6, 0.7, 2.31);
                 const tailR = tailL.clone();
@@ -197,7 +188,6 @@
                 headR.position.set(-0.6, 0.6, -2.31);
                 car.add(headL); car.add(headR);
 
-                // 6. Wheels (Rim + Tire)
                 const wheelGroup = new THREE.Group();
                 const tireGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 16);
                 const rimGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.36, 8);
@@ -222,34 +212,38 @@
         }
 
         // ========================================================
-        // 🏎️ PHYSICS 2.0 (4-Point Suspension + Gravity)
+        // 🏎️ PHYSICS 3.0 (SUPERCHARGED)
         // ========================================================
         class CarPhysics {
             constructor(stats, color) {
                 this.stats = stats;
                 this.mesh = CarFactory.create(color);
-                this.pos = new THREE.Vector3(0, 10, 0); // Start High
+                this.pos = new THREE.Vector3(0, 5, 0);
                 this.velocity = new THREE.Vector3();
                 this.quat = new THREE.Quaternion();
                 this.speed = 0;
                 this.rotVel = 0;
                 this.checkpoint = 0;
                 this.lap = 1;
-                this.lastSafePos = new THREE.Vector3(0, 10, 0);
+                this.lastSafePos = new THREE.Vector3(0, 5, 0);
                 this.onGround = false;
             }
 
             update(inputs, dt, terrainFn, onRoad) {
-                // 1. ENGINE & INPUT
+                const h = terrainFn(this.pos.x, this.pos.z);
+                
+                // 1. ENGINE
                 let accel = 0;
-                if(inputs.ArrowUp) accel = -this.stats.accel; // Forward is -Z
+                if(inputs.ArrowUp) accel = -this.stats.accel; // Forward (-Z)
                 if(inputs.ArrowDown) accel = this.stats.accel;
                 
-                // Friction
-                if(!onRoad && Math.abs(this.speed) > 0.2 && this.onGround) this.speed *= 0.94;
+                // OFFROAD PENALTY (Less harsh now)
+                let surfaceFriction = 0.99; // Asphalt
+                if(!onRoad && Math.abs(this.speed) > 0.2 && this.onGround) surfaceFriction = 0.96;
+
                 this.speed += accel;
-                if(this.onGround) this.speed *= 0.98; // Ground Drag
-                else this.speed *= 0.999; // Air Drag (less)
+                if(this.onGround) this.speed *= surfaceFriction;
+                else this.speed *= 0.995; // Air drag
 
                 // 2. STEERING (Sharper)
                 if(this.onGround && Math.abs(this.speed) > 0.1) {
@@ -260,7 +254,6 @@
                 }
                 this.rotVel *= 0.85;
 
-                // Update Rotation
                 const qRot = new THREE.Quaternion();
                 qRot.setFromAxisAngle(new THREE.Vector3(0,1,0), this.rotVel);
                 this.quat.multiply(qRot).normalize();
@@ -270,20 +263,18 @@
                 const grip = inputs.Shift ? 0.05 : 0.8;
                 const targetVel = fwd.clone().multiplyScalar(this.speed);
                 
-                // Blend velocity only if on ground
                 if(this.onGround) {
                     this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, targetVel.x, grip);
                     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVel.z, grip);
                 }
 
                 // 4. GRAVITY & SUSPENSION
-                const gravity = -30;
+                const gravity = -40; // Heavy gravity for tight feel
                 this.velocity.y += gravity * dt;
 
                 this.pos.add(this.velocity.clone().multiplyScalar(dt));
 
                 // 5. TERRAIN COLLISION (4-Point Check)
-                // We sample terrain height at 4 corners to orient the car
                 const offset = 1.5;
                 const pL = this.pos.clone().add(new THREE.Vector3(offset,0,0).applyQuaternion(this.quat));
                 const pR = this.pos.clone().add(new THREE.Vector3(-offset,0,0).applyQuaternion(this.quat));
@@ -296,42 +287,32 @@
                 const hF = terrainFn(pF.x, pF.z);
                 const hB = terrainFn(pB.x, pB.z);
 
-                // Collision Logic
                 if(this.pos.y < hC + 0.5) {
                     this.pos.y = hC + 0.5;
                     this.velocity.y = 0;
                     this.onGround = true;
                     
-                    // ALIGN CAR TO TERRAIN SLOPE
-                    // Calculate Pitch (Front-Back) & Roll (Left-Right) angles
                     const pitch = Math.atan2(hB - hF, offset*2);
                     const roll = Math.atan2(hL - hR, offset*2);
                     
-                    // Apply visual rotation to chassis only (keep physics calculations simple)
-                    // We blend it so it doesn't snap instantly
-                    const targetRotX = pitch + (this.speed * 0.05); // + Accel squat
-                    const targetRotZ = roll + (-this.rotVel * 4); // + Turn roll
+                    const targetRotX = pitch + (this.speed * 0.05); 
+                    const targetRotZ = roll + (-this.rotVel * 4); 
                     
                     this.mesh.rotation.x = THREE.MathUtils.lerp(this.mesh.rotation.x, targetRotX, 0.2);
                     this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, targetRotZ, 0.2);
 
                 } else {
                     this.onGround = false;
-                    // Reset tilt in air
                     this.mesh.rotation.x = THREE.MathUtils.lerp(this.mesh.rotation.x, 0, 0.05);
                     this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, 0, 0.05);
                 }
 
                 // 6. UPDATE MESH
                 this.mesh.position.copy(this.pos);
-                // The main quaternion handles Y-axis rotation (Steering)
-                // The mesh.rotation handles X/Z axis (Slope/Suspension)
                 this.mesh.quaternion.copy(this.quat);
-                // Re-apply tilt because quaternion overwrite resets euler
                 this.mesh.rotateX(this.mesh.rotation.x);
                 this.mesh.rotateZ(this.mesh.rotation.z);
 
-                // Wheel Spin
                 this.mesh.userData.wheels.children.forEach(w => w.rotation.x += this.speed);
 
                 if(this.onGround && inputs.Shift && Math.abs(this.speed) > 0.5) Game.emitSmoke(this.pos);
@@ -397,8 +378,8 @@
                 let color = 0x444444;
                 
                 if(id === 0) { // SERPENT (Circuit)
-                    this.scene.background = new THREE.Color(0x87CEEB);
-                    this.scene.fog = new THREE.Fog(0x87CEEB, 200, 800);
+                    this.scene.background = new THREE.Color(0x224466); // Darker Blue to avoid "Block" look
+                    this.scene.fog = new THREE.Fog(0x224466, 200, 800);
                     points = [
                         new THREE.Vector3(0,0,0), new THREE.Vector3(200,0,-100), new THREE.Vector3(400,0,0),
                         new THREE.Vector3(300,0,300), new THREE.Vector3(0,0,200), new THREE.Vector3(-200,0,100)
@@ -476,6 +457,8 @@
                     this.racing = false;
                     this.myCar.lap = 1; 
                     this.myCar.checkpoint = 0;
+                    // Snap Camera
+                    this.updateCam(true);
                 }
             },
 
@@ -508,27 +491,28 @@
             checkOffRoad() {
                 if(!this.myCar) return false;
                 const p = this.myCar.pos;
-                // Find distance to closest point on spline
-                // Optimized: Check distance to current checkpoint and next checkpoint
                 const cps = this.levelData.checkpoints;
-                const i = this.myCar.checkpoint; // Current CP index (approx)
-                
-                // Check 5 points around current index to find min dist
+                const i = this.myCar.checkpoint;
                 let minD = 9999;
                 for(let j=-2; j<=2; j++) {
                     let idx = (i + j + cps.length) % cps.length;
                     const d = p.distanceTo(cps[idx]);
                     if(d < minD) minD = d;
                 }
-                
-                return minD < 20; // Track width approx
+                return minD < 20;
             },
 
             // --- NETWORKING ---
             spawnMe(carId) {
                 if(this.myCar) this.scene.remove(this.myCar.mesh);
                 const colors = [0x3366ff, 0xff3333, 0xffaa00, 0xcc00ff];
-                const stats = [{accel:0.02, turn:0.06}, {accel:0.03, turn:0.065}, {accel:0.04, turn:0.06}, {accel:0.06, turn:0.08}];
+                // SUPERCHARGED STATS (Much faster)
+                const stats = [
+                    {accel:0.15, turn:0.06}, 
+                    {accel:0.20, turn:0.065}, 
+                    {accel:0.25, turn:0.06}, 
+                    {accel:0.35, turn:0.08}
+                ];
                 this.myCar = new CarPhysics(stats[carId], colors[carId]);
                 this.scene.add(this.myCar.mesh);
                 // Teleport to current level start
@@ -562,6 +546,15 @@
                     document.getElementById('cash').innerText = d.money;
                     if(d.car !== undefined) this.spawnMe(d.car);
                 });
+                this.socket.on('raceStatus', (s) => {
+                    if(s.status === 'idle') {
+                        this.racing = false;
+                        document.getElementById('join-btn').style.display = 'block';
+                        document.getElementById('lap-counter').style.display = 'none';
+                        document.getElementById('lap-val').innerText = '1';
+                        this.myCar.lap = 1; this.myCar.checkpoint = 0;
+                    }
+                });
                 this.socket.on('raceStart', () => {
                     this.racing = true;
                     this.myCar.lap = 1;
@@ -569,7 +562,7 @@
                     // Grid Spawn Logic
                     const start = this.levelData.spawn;
                     this.myCar.pos.copy(start);
-                    this.myCar.pos.y = 2;
+                    this.myCar.pos.y = 5;
                     // Look at next point
                     this.myCar.mesh.lookAt(this.levelData.checkpoints[1]);
                     this.myCar.quat.copy(this.myCar.mesh.quaternion);
@@ -602,7 +595,6 @@
             },
 
             respawn() {
-                // Find nearest track point
                 const cps = this.levelData.checkpoints;
                 const idx = this.myCar.checkpoint; 
                 const safe = cps[idx];
@@ -610,9 +602,9 @@
                 this.myCar.pos.y += 2;
                 this.myCar.speed = 0;
                 this.myCar.velocity.set(0,0,0);
-                // Look at next
                 this.myCar.mesh.lookAt(cps[(idx+1)%cps.length]);
                 this.myCar.quat.copy(this.myCar.mesh.quaternion);
+                this.updateCam(true);
             },
 
             joinRace() { this.socket.emit('joinRace'); },
@@ -625,7 +617,6 @@
                 
                 if(dist < 30) {
                     this.myCar.checkpoint = nextIdx;
-                    // Lap
                     if(nextIdx === 0) {
                         this.myCar.lap++;
                         document.getElementById('lap-val').innerText = Math.min(this.myCar.lap, 5);
@@ -635,15 +626,21 @@
                 }
             },
 
-            updateCam() {
+            updateCam(snap = false) {
                 let offset;
                 if(this.camIndex === 0) offset = new THREE.Vector3(0, 7, 16);
                 else if(this.camIndex === 1) offset = new THREE.Vector3(0, 20, 35);
                 else offset = new THREE.Vector3(0, 80, 0);
                 offset.applyQuaternion(this.myCar.quat);
                 const target = this.myCar.pos.clone().add(offset);
-                this.camera.position.lerp(target, 0.1);
-                this.camera.lookAt(this.myCar.pos);
+                
+                if(snap) {
+                    this.camera.position.copy(target);
+                    this.camera.lookAt(this.myCar.pos);
+                } else {
+                    this.camera.position.lerp(target, 0.1);
+                    this.camera.lookAt(this.myCar.pos);
+                }
             },
 
             drawMinimap() {
@@ -654,15 +651,13 @@
                 
                 ctx.save();
                 ctx.translate(110, 110);
-                // Rotate whole map opposite to player rotation to simulate "Map Rotating"
                 const rot = new THREE.Euler().setFromQuaternion(this.myCar.quat).y;
-                ctx.rotate(rot - Math.PI); // Rotate map
+                ctx.rotate(rot - Math.PI); 
                 
                 const scale = 0.5;
                 const px = this.myCar.pos.x;
                 const pz = this.myCar.pos.z;
 
-                // Draw Track
                 const cps = this.levelData.checkpoints;
                 ctx.strokeStyle = "#555"; ctx.lineWidth = 15; ctx.lineCap = "round";
                 ctx.beginPath();
@@ -673,11 +668,8 @@
                 });
                 ctx.closePath(); ctx.stroke();
                 
-                // Track Highlight
-                ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
-                ctx.stroke();
+                ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
 
-                // Other Players
                 Object.values(this.players).forEach(p => {
                     const m = p.mesh;
                     const rx = (m.position.x - px) * scale;
@@ -687,14 +679,6 @@
                 });
 
                 ctx.restore();
-
-                // Draw Me (Fixed Center)
-                ctx.fillStyle = "#00f3ff";
-                ctx.beginPath(); ctx.arc(110, 110, 6, 0, Math.PI*2); ctx.fill();
-                // Vision Cone
-                ctx.beginPath(); ctx.moveTo(110,110);
-                ctx.lineTo(100, 80); ctx.lineTo(120, 80);
-                ctx.fillStyle = "rgba(0, 243, 255, 0.3)"; ctx.fill();
             },
 
             emitSmoke(pos) {
@@ -715,11 +699,11 @@
                     this.myCar.update(this.input, 0.016, hFn, onRoad);
                     this.checkLaps();
                     this.updateCam();
-                    this.audio.update(Math.abs(this.myCar.speed) / 2.5);
+                    this.audio.update(Math.abs(this.myCar.speed) / 5.0);
                     this.drawMinimap();
                     
                     document.getElementById('speed').innerText = Math.floor(Math.abs(this.myCar.speed) * 120);
-                    document.getElementById('rpm').style.width = Math.min(100, Math.abs(this.myCar.speed)*60) + "%";
+                    document.getElementById('rpm').style.width = Math.min(100, Math.abs(this.myCar.speed)*30) + "%";
 
                     this.socket.emit('move', {
                         x: this.myCar.pos.x, y: this.myCar.pos.y, z: this.myCar.pos.z,
