@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TURBO DRIFT: SUPERCHARGED</title>
+    <title>TURBO DRIFT: SIMULATION</title>
     <style>
         :root { --neon: #00f3ff; --danger: #ff0055; --bg: #000; }
         body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; user-select: none; color: white; }
@@ -133,9 +133,12 @@
             }
             update(speed) {
                 if(!this.init) return;
-                this.src.playbackRate.setTargetAtTime(0.5 + (speed*1.5), this.ctx.currentTime, 0.1);
-                this.filter.frequency.setTargetAtTime(100 + (speed*800), this.ctx.currentTime, 0.1);
-                this.gain.gain.setTargetAtTime(0.3 + (speed*0.4), this.ctx.currentTime, 0.1);
+                // Pitch rises with speed
+                this.src.playbackRate.setTargetAtTime(0.5 + (speed*2.0), this.ctx.currentTime, 0.1);
+                // Filter opens with speed
+                this.filter.frequency.setTargetAtTime(100 + (speed*1200), this.ctx.currentTime, 0.1);
+                // Volume
+                this.gain.gain.setTargetAtTime(0.3 + (speed*0.6), this.ctx.currentTime, 0.1);
             }
         }
 
@@ -212,7 +215,7 @@
         }
 
         // ========================================================
-        // 🏎️ PHYSICS 3.0 (SUPERCHARGED)
+        // 🏎️ PHYSICS 4.0 (REALISTIC SUSPENSION & WEIGHT)
         // ========================================================
         class CarPhysics {
             constructor(stats, color) {
@@ -232,27 +235,32 @@
             update(inputs, dt, terrainFn, onRoad) {
                 const h = terrainFn(this.pos.x, this.pos.z);
                 
-                // 1. ENGINE
-                let accel = 0;
-                if(inputs.ArrowUp) accel = -this.stats.accel; // Forward (-Z)
-                if(inputs.ArrowDown) accel = this.stats.accel;
+                // 1. REALISTIC ACCELERATION CURVE
+                let throttle = 0;
+                if(inputs.ArrowUp) throttle = -1; // Forward is -Z
+                if(inputs.ArrowDown) throttle = 1;
                 
-                // OFFROAD PENALTY (Less harsh now)
-                let surfaceFriction = 0.99; // Asphalt
-                if(!onRoad && Math.abs(this.speed) > 0.2 && this.onGround) surfaceFriction = 0.96;
+                // Acceleration power is high at low speeds, drops at high speeds (Drag)
+                // Max speed in physics units ~ 2.5
+                let power = this.stats.accel * 2.0; 
+                if(!this.onGround) power = 0;
 
-                this.speed += accel;
-                if(this.onGround) this.speed *= surfaceFriction;
-                else this.speed *= 0.995; // Air drag
+                // Air Resistance (Drag)
+                const dragCoeff = 0.992; 
+                const offRoadFriction = onRoad ? 1.0 : 0.96;
+
+                // Apply Force
+                this.speed += throttle * power;
+                this.speed *= dragCoeff * offRoadFriction;
 
                 // 2. STEERING (Sharper)
                 if(this.onGround && Math.abs(this.speed) > 0.1) {
                     const dir = this.speed > 0 ? 1 : -1;
-                    const turnForce = this.stats.turn * 3.5; 
+                    const turnForce = this.stats.turn * 4.0; // Very sharp steering
                     if(inputs.ArrowLeft) this.rotVel -= turnForce * dt * dir;
                     if(inputs.ArrowRight) this.rotVel += turnForce * dt * dir;
                 }
-                this.rotVel *= 0.85;
+                this.rotVel *= 0.80; // Fast damping for quick response
 
                 const qRot = new THREE.Quaternion();
                 qRot.setFromAxisAngle(new THREE.Vector3(0,1,0), this.rotVel);
@@ -260,7 +268,7 @@
 
                 // 3. VELOCITY VECTOR
                 const fwd = new THREE.Vector3(0,0,1).applyQuaternion(this.quat);
-                const grip = inputs.Shift ? 0.05 : 0.8;
+                const grip = inputs.Shift ? 0.05 : 0.9; // High grip for racing
                 const targetVel = fwd.clone().multiplyScalar(this.speed);
                 
                 if(this.onGround) {
@@ -268,44 +276,57 @@
                     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVel.z, grip);
                 }
 
-                // 4. GRAVITY & SUSPENSION
-                const gravity = -40; // Heavy gravity for tight feel
+                // 4. SUSPENSION & GRAVITY (Spring-Damper)
+                const gravity = -60; // Heavy gravity
                 this.velocity.y += gravity * dt;
 
                 this.pos.add(this.velocity.clone().multiplyScalar(dt));
 
-                // 5. TERRAIN COLLISION (4-Point Check)
+                // Terrain Check (Center)
+                const springStrength = 100;
+                const damping = 5;
+                const suspensionLen = 0.8;
+
+                if(this.pos.y < h + suspensionLen) {
+                    const compression = (h + suspensionLen) - this.pos.y;
+                    const springForce = compression * springStrength;
+                    const dampingForce = -this.velocity.y * damping;
+                    
+                    // Apply Suspension Force Upward
+                    this.velocity.y += (springForce + dampingForce) * dt;
+                    this.onGround = true;
+                    
+                    // Prevent falling through floor
+                    if(this.pos.y < h) {
+                        this.pos.y = h;
+                        this.velocity.y = 0;
+                    }
+                } else {
+                    this.onGround = false;
+                }
+
+                // 5. TILT & ROLL (Visual)
+                // Sample 4 points for tilt
                 const offset = 1.5;
                 const pL = this.pos.clone().add(new THREE.Vector3(offset,0,0).applyQuaternion(this.quat));
                 const pR = this.pos.clone().add(new THREE.Vector3(-offset,0,0).applyQuaternion(this.quat));
                 const pF = this.pos.clone().add(new THREE.Vector3(0,0,-offset).applyQuaternion(this.quat));
                 const pB = this.pos.clone().add(new THREE.Vector3(0,0,offset).applyQuaternion(this.quat));
 
-                const hC = terrainFn(this.pos.x, this.pos.z);
                 const hL = terrainFn(pL.x, pL.z);
                 const hR = terrainFn(pR.x, pR.z);
                 const hF = terrainFn(pF.x, pF.z);
                 const hB = terrainFn(pB.x, pB.z);
 
-                if(this.pos.y < hC + 0.5) {
-                    this.pos.y = hC + 0.5;
-                    this.velocity.y = 0;
-                    this.onGround = true;
-                    
-                    const pitch = Math.atan2(hB - hF, offset*2);
-                    const roll = Math.atan2(hL - hR, offset*2);
-                    
-                    const targetRotX = pitch + (this.speed * 0.05); 
-                    const targetRotZ = roll + (-this.rotVel * 4); 
-                    
-                    this.mesh.rotation.x = THREE.MathUtils.lerp(this.mesh.rotation.x, targetRotX, 0.2);
-                    this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, targetRotZ, 0.2);
-
-                } else {
-                    this.onGround = false;
-                    this.mesh.rotation.x = THREE.MathUtils.lerp(this.mesh.rotation.x, 0, 0.05);
-                    this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, 0, 0.05);
-                }
+                const pitch = Math.atan2(hB - hF, offset*2);
+                const roll = Math.atan2(hL - hR, offset*2);
+                
+                const targetRotX = pitch + (this.speed * 0.05); 
+                const targetRotZ = roll + (-this.rotVel * 4); 
+                
+                // Blend rotation
+                this.mesh.rotation.x = THREE.MathUtils.lerp(this.mesh.rotation.x, targetRotX, 0.2);
+                this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, targetRotZ, 0.2);
 
                 // 6. UPDATE MESH
                 this.mesh.position.copy(this.pos);
@@ -327,7 +348,6 @@
             input: { ArrowUp:false, ArrowDown:false, ArrowLeft:false, ArrowRight:false, Shift:false },
             players: {}, myCar: null, racing: false, camIndex: 0,
             
-            // Map Data
             currentLevel: 0,
             levelData: null,
             simplex: new SimplexNoise(),
@@ -340,7 +360,6 @@
                 this.renderer.shadowMap.enabled = true;
                 document.body.appendChild(this.renderer.domElement);
 
-                // Default Light
                 const amb = new THREE.AmbientLight(0xffffff, 0.4);
                 this.scene.add(amb);
                 const sun = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -352,7 +371,7 @@
 
                 this.setupInputs();
                 this.connect();
-                this.loadLevel(0); // Start Circuit
+                this.loadLevel(0); 
 
                 window.addEventListener('resize', () => {
                     this.camera.aspect = window.innerWidth/window.innerHeight;
@@ -373,65 +392,53 @@
                 this.scenery = new THREE.Group();
                 this.scene.add(this.scenery);
 
-                // 1. GENERATE TRACK SPLINE
                 let points = [];
-                let color = 0x444444;
                 
-                if(id === 0) { // SERPENT (Circuit)
-                    this.scene.background = new THREE.Color(0x224466); // Darker Blue to avoid "Block" look
-                    this.scene.fog = new THREE.Fog(0x224466, 200, 800);
-                    points = [
-                        new THREE.Vector3(0,0,0), new THREE.Vector3(200,0,-100), new THREE.Vector3(400,0,0),
-                        new THREE.Vector3(300,0,300), new THREE.Vector3(0,0,200), new THREE.Vector3(-200,0,100)
-                    ];
-                    this.groundColor = 0x2d6e32; // Green
+                if(id === 0) { // SERPENT
+                    this.scene.background = new THREE.Color(0x87CEEB);
+                    this.scene.fog = new THREE.Fog(0x87CEEB, 200, 800);
+                    points = [new THREE.Vector3(0,0,0), new THREE.Vector3(200,0,-100), new THREE.Vector3(400,0,0), new THREE.Vector3(300,0,300), new THREE.Vector3(0,0,200), new THREE.Vector3(-200,0,100)];
+                    this.groundColor = 0x2d6e32; 
                 } 
-                else if (id === 1) { // CITY (Night)
+                else if (id === 1) { // CITY
                     this.scene.background = new THREE.Color(0x050510);
                     this.scene.fog = new THREE.Fog(0x050510, 100, 500);
-                    points = [
-                        new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-400), new THREE.Vector3(400,0,-400),
-                        new THREE.Vector3(400,0,0), new THREE.Vector3(200,0,200), new THREE.Vector3(-200,0,200)
-                    ];
-                    this.groundColor = 0x111111; // Asphalt
+                    points = [new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-400), new THREE.Vector3(400,0,-400), new THREE.Vector3(400,0,0), new THREE.Vector3(200,0,200), new THREE.Vector3(-200,0,200)];
+                    this.groundColor = 0x111111;
                     this.spawnBuildings();
                 }
-                else { // RALLY (Dirt)
+                else { // RALLY
                     this.scene.background = new THREE.Color(0xdcae96);
                     this.scene.fog = new THREE.Fog(0xdcae96, 100, 600);
-                    points = [
-                        new THREE.Vector3(0,0,0), new THREE.Vector3(300,20,-300), new THREE.Vector3(600,-10,0),
-                        new THREE.Vector3(300,30,400), new THREE.Vector3(-200,10,200)
-                    ];
-                    this.groundColor = 0x8B4513; // Dirt
+                    points = [new THREE.Vector3(0,0,0), new THREE.Vector3(300,20,-300), new THREE.Vector3(600,-10,0), new THREE.Vector3(300,30,400), new THREE.Vector3(-200,10,200)];
+                    this.groundColor = 0x8B4513; 
                 }
 
-                // 2. BUILD SPLINE
+                // SPLINE
                 const curve = new THREE.CatmullRomCurve3(points);
                 curve.closed = true;
                 const tube = new THREE.TubeGeometry(curve, 100, 15, 3, true);
                 this.trackMesh = new THREE.Mesh(tube, new THREE.MeshStandardMaterial({color:0x333}));
-                this.trackMesh.rotation.x = Math.PI; // Flip normal issue? No, Tube is fine.
+                this.trackMesh.rotation.x = Math.PI;
                 this.trackMesh.position.y = 0.2;
                 this.trackMesh.receiveShadow = true;
                 this.scene.add(this.trackMesh);
 
-                // Border
                 const wire = new THREE.TubeGeometry(curve, 100, 16, 3, true);
                 this.trackBorder = new THREE.Mesh(wire, new THREE.MeshBasicMaterial({color: id===1?0x00f3ff:0xffffff, wireframe:true}));
                 this.trackBorder.position.y = 1;
                 this.scene.add(this.trackBorder);
 
-                // 3. TERRAIN
+                // TERRAIN
                 const geo = new THREE.PlaneGeometry(2000, 2000, 128, 128);
                 const pos = geo.attributes.position;
                 for(let i=0; i<pos.count; i++) {
                     const x = pos.getX(i);
                     const y = pos.getY(i);
-                    // Get Distance to Track Spline (Approx)
-                    // For speed, we just use noise everywhere except center
                     let h = this.simplex.noise2D(x*0.005, y*0.005) * (id===2 ? 30 : 10);
-                    if(id === 2 && x > 200) h += 20; // Mountains
+                    if(id === 2 && x > 200) h += 20; 
+                    // FLATTEN SPAWN
+                    if(Math.sqrt((x-points[0].x)*(x-points[0].x) + (y+points[0].z)*(y+points[0].z)) < 50) h = 0;
                     pos.setZ(i, h);
                 }
                 geo.computeVertexNormals();
@@ -440,24 +447,16 @@
                 this.terrainMesh.receiveShadow = true;
                 this.scene.add(this.terrainMesh);
 
-                // Store Level Data
-                this.levelData = {
-                    curve: curve,
-                    checkpoints: curve.getSpacedPoints(40),
-                    spawn: points[0]
-                };
+                this.levelData = { curve: curve, checkpoints: curve.getSpacedPoints(40), spawn: points[0] };
 
-                // Teleport Player
                 if(this.myCar) {
                     this.myCar.pos.copy(points[0]);
-                    this.myCar.pos.y = 5;
+                    this.myCar.pos.y = 10;
                     this.myCar.velocity.set(0,0,0);
                     this.myCar.speed = 0;
-                    // Reset Race Logic
                     this.racing = false;
                     this.myCar.lap = 1; 
                     this.myCar.checkpoint = 0;
-                    // Snap Camera
                     this.updateCam(true);
                 }
             },
@@ -469,7 +468,6 @@
                     const b = new THREE.Mesh(geo, mat);
                     const x = (Math.random()-0.5)*1000;
                     const z = (Math.random()-0.5)*1000;
-                    // Don't spawn near center
                     if(Math.sqrt(x*x+z*z) > 100) {
                         b.position.set(x, 50, z);
                         b.scale.y = Math.random()*2 + 0.5;
@@ -479,13 +477,19 @@
             },
 
             getTerrainHeight(x, z) {
-                // Flatten track areas roughly
-                if(x > -300 && x < 300 && z > -100 && z < 500) return 0; // Track 0
-                if(z < -500) return 0; // City
-                // Canyon height variation
-                let y = Math.max(0, this.simplex.noise2D(x*0.005, -z*0.005) * (this.currentLevel===2 ? 30 : 10));
-                if(this.currentLevel === 2 && x > 200) y += 20; // Mountains
-                return y;
+                // Flatten spawn
+                if(this.levelData) {
+                    const sx = this.levelData.spawn.x;
+                    const sz = this.levelData.spawn.z;
+                    if(Math.sqrt((x-sx)*(x-sx) + (z-sz)*(z-sz)) < 50) return 0;
+                }
+
+                if(x > -300 && x < 300 && z > -100 && z < 500 && this.currentLevel === 0) return 0;
+                if(z < -500 && this.currentLevel === 1) return 0;
+                
+                let h = this.simplex.noise2D(x*0.005, -z*0.005) * (this.currentLevel===2 ? 30 : 10);
+                if(this.currentLevel === 2 && x > 200) h += 20;
+                return Math.max(0, h);
             },
 
             checkOffRoad() {
@@ -502,20 +506,18 @@
                 return minD < 20;
             },
 
-            // --- NETWORKING ---
             spawnMe(carId) {
                 if(this.myCar) this.scene.remove(this.myCar.mesh);
                 const colors = [0x3366ff, 0xff3333, 0xffaa00, 0xcc00ff];
-                // SUPERCHARGED STATS (Much faster)
+                // REALISTIC STATS (Lower Accel number because we integrate it, higher max speed)
                 const stats = [
-                    {accel:0.15, turn:0.06}, 
-                    {accel:0.20, turn:0.065}, 
-                    {accel:0.25, turn:0.06}, 
-                    {accel:0.35, turn:0.08}
+                    {accel:0.02, turn:0.06}, 
+                    {accel:0.03, turn:0.065}, 
+                    {accel:0.04, turn:0.06}, 
+                    {accel:0.05, turn:0.08}
                 ];
                 this.myCar = new CarPhysics(stats[carId], colors[carId]);
                 this.scene.add(this.myCar.mesh);
-                // Teleport to current level start
                 this.loadLevel(this.currentLevel);
             },
 
@@ -559,14 +561,11 @@
                     this.racing = true;
                     this.myCar.lap = 1;
                     this.myCar.speed = 0;
-                    // Grid Spawn Logic
                     const start = this.levelData.spawn;
                     this.myCar.pos.copy(start);
                     this.myCar.pos.y = 5;
-                    // Look at next point
                     this.myCar.mesh.lookAt(this.levelData.checkpoints[1]);
                     this.myCar.quat.copy(this.myCar.mesh.quaternion);
-                    
                     document.getElementById('join-btn').style.display = 'none';
                     document.getElementById('lap-counter').style.display = 'block';
                     this.notify("🟢 GO!");
@@ -574,7 +573,6 @@
             },
 
             spawnOther(p) {
-                // Reuse CarFactory logic but simpler
                 const mesh = CarFactory.create(p.color||0xffffff);
                 mesh.position.set(p.x, p.y, p.z);
                 this.scene.add(mesh);
@@ -667,7 +665,6 @@
                     if(i===0) ctx.moveTo(rx, rz); else ctx.lineTo(rx, rz);
                 });
                 ctx.closePath(); ctx.stroke();
-                
                 ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
 
                 Object.values(this.players).forEach(p => {
@@ -679,6 +676,9 @@
                 });
 
                 ctx.restore();
+                ctx.fillStyle = "#00f3ff"; ctx.beginPath(); ctx.arc(110, 110, 6, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(110,110); ctx.lineTo(100, 80); ctx.lineTo(120, 80);
+                ctx.fillStyle = "rgba(0, 243, 255, 0.3)"; ctx.fill();
             },
 
             emitSmoke(pos) {
@@ -703,7 +703,7 @@
                     this.drawMinimap();
                     
                     document.getElementById('speed').innerText = Math.floor(Math.abs(this.myCar.speed) * 120);
-                    document.getElementById('rpm').style.width = Math.min(100, Math.abs(this.myCar.speed)*30) + "%";
+                    document.getElementById('rpm').style.width = Math.min(100, Math.abs(this.myCar.speed)*60) + "%";
 
                     this.socket.emit('move', {
                         x: this.myCar.pos.x, y: this.myCar.pos.y, z: this.myCar.pos.z,
