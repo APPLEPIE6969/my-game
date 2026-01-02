@@ -2,15 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TURBO DRIFT: PHYSICS 2.0</title>
+    <title>TURBO DRIFT: EVOLUTION</title>
     <style>
         :root { --neon: #00f3ff; --danger: #ff0055; --bg: #000; }
         body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; user-select: none; color: white; }
         
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; box-sizing: border-box; }
         
-        /* HUD ELEMENTS */
-        .card { pointer-events: auto; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); padding: 10px 20px; border-radius: 8px; backdrop-filter: blur(10px); display: flex; gap: 15px; align-items: center; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .card { pointer-events: auto; background: rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.2); padding: 10px 20px; border-radius: 8px; backdrop-filter: blur(10px); display: flex; gap: 15px; align-items: center; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
         .money { font-size: 24px; font-weight: 900; color: #fff; }
         .money span { color: var(--neon); }
         
@@ -114,6 +113,7 @@
             start() {
                 if(this.init) return;
                 this.ctx.resume();
+                // Engine Rumble (Filtered Noise)
                 const bufSize = this.ctx.sampleRate * 2;
                 const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
                 const data = buf.getChannelData(0);
@@ -134,8 +134,11 @@
             }
             update(speed) {
                 if(!this.init) return;
+                // Pitch rises with speed
                 this.src.playbackRate.setTargetAtTime(0.5 + (speed*1.5), this.ctx.currentTime, 0.1);
+                // Filter opens with speed
                 this.filter.frequency.setTargetAtTime(100 + (speed*800), this.ctx.currentTime, 0.1);
+                // Volume
                 this.gain.gain.setTargetAtTime(0.3 + (speed*0.4), this.ctx.currentTime, 0.1);
             }
         }
@@ -152,15 +155,18 @@
                 const glowRed = new THREE.MeshBasicMaterial({ color: 0xff0000 });
                 const glowWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
+                // 1. Chassis (Lower)
                 const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.6, 4.6), mainColor);
                 chassis.position.y = 0.6;
                 chassis.castShadow = true;
                 car.add(chassis);
 
+                // 2. Cabin (Upper)
                 const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 2.2), glassMat);
                 cabin.position.set(0, 1.15, -0.2);
                 car.add(cabin);
 
+                // 3. Wheel Arches (Fenders)
                 const fenderGeo = new THREE.BoxGeometry(2.3, 0.4, 1.2);
                 const frontFender = new THREE.Mesh(fenderGeo, mainColor);
                 frontFender.position.set(0, 0.6, -1.4);
@@ -169,6 +175,7 @@
                 rearFender.position.set(0, 0.6, 1.3);
                 car.add(rearFender);
 
+                // 4. Spoiler
                 const wing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.5), blackMat);
                 wing.position.set(0, 1.3, 2.1);
                 const poleL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.2), blackMat);
@@ -177,6 +184,7 @@
                 poleR.position.set(-0.8, 1.1, 2.1);
                 car.add(wing); car.add(poleL); car.add(poleR);
 
+                // 5. Lights
                 const tailL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), glowRed);
                 tailL.position.set(0.6, 0.7, 2.31);
                 const tailR = tailL.clone();
@@ -189,6 +197,7 @@
                 headR.position.set(-0.6, 0.6, -2.31);
                 car.add(headL); car.add(headR);
 
+                // 6. Wheels (Rim + Tire)
                 const wheelGroup = new THREE.Group();
                 const tireGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 16);
                 const rimGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.36, 8);
@@ -460,7 +469,7 @@
                 // Teleport Player
                 if(this.myCar) {
                     this.myCar.pos.copy(points[0]);
-                    this.myCar.pos.y = 10;
+                    this.myCar.pos.y = 5;
                     this.myCar.velocity.set(0,0,0);
                     this.myCar.speed = 0;
                     // Reset Race Logic
@@ -560,7 +569,7 @@
                     // Grid Spawn Logic
                     const start = this.levelData.spawn;
                     this.myCar.pos.copy(start);
-                    this.myCar.pos.y = 10;
+                    this.myCar.pos.y = 2;
                     // Look at next point
                     this.myCar.mesh.lookAt(this.levelData.checkpoints[1]);
                     this.myCar.quat.copy(this.myCar.mesh.quaternion);
@@ -598,7 +607,7 @@
                 const idx = this.myCar.checkpoint; 
                 const safe = cps[idx];
                 this.myCar.pos.copy(safe);
-                this.myCar.pos.y = 10;
+                this.myCar.pos.y += 2;
                 this.myCar.speed = 0;
                 this.myCar.velocity.set(0,0,0);
                 // Look at next
